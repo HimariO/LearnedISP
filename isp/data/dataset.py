@@ -59,6 +59,32 @@ SID_RGB_GROUND_TRUTH_EXPOSURE = TFExampleFeature(
     tf.io.FixedLenFeature([], tf.float32)
 )
 
+MAI_RAW_INPUT = TFExampleFeature(
+    'mai/raw_input',
+    lambda value: tf.train.Feature(
+        bytes_list=tf.train.BytesList(value=[value])),
+    tf.io.FixedLenFeature([], tf.string)
+)
+# NOTE: height & width saved over here is size of raw image before rehsape 
+#       to [h/2, w/2, 4] using space_to_depth function
+MAI_RAW_INPUT_HEIGHT = TFExampleFeature(
+    'mai/raw_input/height',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=[value])),
+    tf.io.FixedLenFeature([], tf.int64)
+)
+MAI_RAW_INPUT_WIDTH = TFExampleFeature(
+    'mai/raw_input/width',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=[value])),
+    tf.io.FixedLenFeature([], tf.int64)
+)
+MAI_RGB_GROUND_TRUTH=TFExampleFeature(
+    'mai/ground_truth/encoded',
+    lambda value: tf.train.Feature(
+        bytes_list=tf.train.BytesList(value=[value])),
+    tf.io.FixedLenFeature([], tf.string))
+
 
 class Base(abc.ABC):
 

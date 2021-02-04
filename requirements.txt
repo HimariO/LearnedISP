@@ -1,0 +1,8 @@
+imageio
+pillow
+tensorflow
+loguru
+fire
+scikit-image
+tensorflow_addons
+tensorflow-model-optimization
