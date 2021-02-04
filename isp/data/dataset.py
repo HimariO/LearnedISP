@@ -1,11 +1,12 @@
 import abc
 import collections
-from isp.model.io import dataset_element
+from typing import Sized
 
 import tensorflow as tf
+from loguru import logger
 
 from . import aug
-from typing import Sized
+from isp.model.io import dataset_element
 
 
 TF_RECORD_SUFFIX = '.tfrecord'
@@ -149,7 +150,7 @@ class TFRecordDataset(Base):
     return example_dataset
 
   def create_dataset(self, batch_size=None, num_epochs=None, shuffle=True,  # pylint: disable=arguments-differ
-                     num_readers=1, shuffle_buffer_size=10000,
+                     num_readers=1, shuffle_buffer_size=4096,
                      num_parallel_calls=1, drop_remainder=False,
                      cache_examples=False):
     dataset = self._create_example_dataset(num_readers, shuffle, cache_examples)
@@ -255,10 +256,12 @@ class SIDTFRecordDataset(TFRecordDataset):
 @register_dataset
 class MaiIspTFRecordDataset(TFRecordDataset):
 
-  BIT_DEPTH = 1024.0
+  BIT_DEPTH = 255.0 * 4  # NOTE: raw image actually value from 144 ~ 4092
 
-  def __init__(self, data_preprocessing_tag_and_init_kwargs_pairs=None,
-               tf_record_path_pattern=None, is_verification_dataset=False):
+  def __init__(self, 
+      tf_record_path_pattern=None,
+      data_preprocessing_tag_and_init_kwargs_pairs=None,
+      is_verification_dataset=False):
     super().__init__(
         data_preprocessing_tag_and_init_kwargs_pairs=(
             data_preprocessing_tag_and_init_kwargs_pairs))
@@ -285,18 +288,19 @@ class MaiIspTFRecordDataset(TFRecordDataset):
                             MAI_RGB_GROUND_TRUTH,]
         })
     
-    black_level = 0
-    img_height = tf.cast(key_to_feature[SID_RAW_INPUT_HEIGHT.key], tf.int32)
-    img_width = tf.cast(key_to_feature[SID_RAW_INPUT_WIDTH.key], tf.int32)
+    black_level = 144
+    img_height = tf.cast(key_to_feature[MAI_RAW_INPUT_HEIGHT.key], tf.int32)
+    img_width = tf.cast(key_to_feature[MAI_RAW_INPUT_WIDTH.key], tf.int32)
     
     raw_image = tf.image.decode_png(
-        key_to_feature[SID_RAW_INPUT.key],
+        key_to_feature[MAI_RAW_INPUT.key],
         channels=1,
         dtype=tf.dtypes.uint16)
-    tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
     
     raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
     raw_image = tf.cast(raw_image, dtype=tf.float32)
+    # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
+    
     raw_image = tf.maximum(raw_image - black_level, 0)
     raw_image /= (self.BIT_DEPTH - black_level)
     raw_image.set_shape([None, None, 4])
@@ -304,18 +308,23 @@ class MaiIspTFRecordDataset(TFRecordDataset):
     # raw_image = (raw_image - 0.5) * 2  # scale from [0, 1] to [-1, 1]
 
     rgb_ground_truth = tf.image.decode_image(
-        key_to_feature[SID_RGB_GROUND_TRUTH.key]
+        key_to_feature[MAI_RGB_GROUND_TRUTH.key]
     )
     rgb_ground_truth = tf.cast(rgb_ground_truth, tf.float32)
     rgb_ground_truth = self._normalize_rgb_image(rgb_ground_truth)
     rgb_ground_truth.set_shape([None, None, 3])
 
-    short_exposure = key_to_feature[SID_RAW_INPUT_EXPOSURE.key]
-    long_exposure = key_to_feature[SID_RGB_GROUND_TRUTH_EXPOSURE.key]
-    ratio = long_exposure / short_exposure
-
     return {
-        dataset_element.SID_RAW_INPUT: raw_image * ratio,
-        dataset_element.SID_RGB_GROUND_TRUTH: rgb_ground_truth,
-        'black_level': black_level
+        dataset_element.MAI_RAW_PATCH: raw_image,
+        dataset_element.MAI_DSLR_PATCH: rgb_ground_truth,
     }
+
+
+if __name__ == '__main__':
+  with logger.catch():
+    mai_isp = MaiIspTFRecordDataset(tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/*.tfrecord')
+    dataset = mai_isp.create_dataset(batch_size=8)
+    for d in dataset:
+      print(d)
+      break
+  

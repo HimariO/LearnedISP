@@ -166,11 +166,11 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
 
 
 if __name__ == '__main__':
-  # train_data, train_answ = load_train_patch(
-  #   '/home/ron/Downloads/LearnedISP',
-  #   256, 256, 1)
-  # import pdb; pdb.set_trace()
+  train_data, train_answ = load_train_patch(
+    '/home/ron/Downloads/LearnedISP',
+    256, 256, 1)
+  import pdb; pdb.set_trace()
 
-  create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord')
+  # create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord')
 
   # fire.Fire(create_tfrecord)
