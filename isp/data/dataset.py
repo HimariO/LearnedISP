@@ -6,7 +6,7 @@ import tensorflow as tf
 from loguru import logger
 
 from . import aug
-from isp.model.io import dataset_element
+from isp.model.io import dataset_element, model_prediction
 
 
 TF_RECORD_SUFFIX = '.tfrecord'
@@ -109,6 +109,18 @@ def get_dataset(tag):
   return _TAG_TO_DATASET[tag]
 
 
+def split_train_valid(dataset: tf.data.Dataset, val_ratio_or_size=0.1):
+  if val_ratio_or_size >= 1:
+    val_set = dataset.take(val_ratio_or_size)
+    train_set = dataset.skip(val_ratio_or_size)
+  else:
+    N = tf.data.cardinality(dataset)
+    V = int(val_ratio_or_size * N)
+    val_set = dataset.take(V)
+    train_set = dataset.skip(V)
+  return train_set, val_set
+
+
 class TFRecordDataset(Base):
 
   def __init__(self, data_preprocessing_tag_and_init_kwargs_pairs=None):
@@ -132,21 +144,35 @@ class TFRecordDataset(Base):
       input_name_to_tensor = data_preprocessing_callable(input_name_to_tensor)
     return input_name_to_tensor
 
+  # def _create_example_dataset(self, num_readers, shuffle, cache_examples):
+  #   # NOTE: num_reader > 1 will make output examples become somewhat random due to async reading
+  #   # assert shuffle or num_readers == 1
+  #   tf_record_paths = self.tf_record_paths
+  #   assert tf_record_paths
+  #   example_dataset = tf.data.Dataset.from_tensor_slices(tf_record_paths)
+  #   if shuffle:
+  #     example_dataset = example_dataset.shuffle(len(tf_record_paths))
+  #   example_dataset = example_dataset.apply(
+  #       tf.data.experimental.parallel_interleave(
+  #           lambda filename: tf.data.TFRecordDataset(
+  #               filename, buffer_size=8 * 1024 * 1024),
+  #           cycle_length=num_readers, sloppy=True))
+  #   if cache_examples:
+  #     example_dataset = example_dataset.cache()
+  #   return example_dataset
+  
   def _create_example_dataset(self, num_readers, shuffle, cache_examples):
     # NOTE: num_reader > 1 will make output examples become somewhat random due to async reading
     # assert shuffle or num_readers == 1
     tf_record_paths = self.tf_record_paths
     assert tf_record_paths
-    example_dataset = tf.data.Dataset.from_tensor_slices(tf_record_paths)
+    example_dataset = tf.data.TFRecordDataset(tf_record_paths, num_parallel_reads=num_readers)
+    
     if shuffle:
-      example_dataset = example_dataset.shuffle(len(tf_record_paths))
-    example_dataset = example_dataset.apply(
-        tf.data.experimental.parallel_interleave(
-            lambda filename: tf.data.TFRecordDataset(
-                filename, buffer_size=8 * 1024 * 1024),
-            cycle_length=num_readers, sloppy=True))
+      example_dataset = example_dataset.shuffle(1024)
     if cache_examples:
       example_dataset = example_dataset.cache()
+    
     return example_dataset
 
   def create_dataset(self, batch_size=None, num_epochs=None, shuffle=True,  # pylint: disable=arguments-differ
@@ -314,17 +340,25 @@ class MaiIspTFRecordDataset(TFRecordDataset):
     rgb_ground_truth = self._normalize_rgb_image(rgb_ground_truth)
     rgb_ground_truth.set_shape([None, None, 3])
 
-    return {
+    return (
+      {
         dataset_element.MAI_RAW_PATCH: raw_image,
         dataset_element.MAI_DSLR_PATCH: rgb_ground_truth,
-    }
+      },
+      {
+        model_prediction.ENHANCE_RGB: rgb_ground_truth,
+      }
+    )
 
 
 if __name__ == '__main__':
   with logger.catch():
-    mai_isp = MaiIspTFRecordDataset(tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/*.tfrecord')
+    mai_isp = MaiIspTFRecordDataset(
+      tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/*.tfrecord')
     dataset = mai_isp.create_dataset(batch_size=8)
-    for d in dataset:
-      print(d)
+    for data in dataset:
+      for d in data:
+        for k, v in d.items():
+          print(k, v.shape, v.dtype)
       break
   

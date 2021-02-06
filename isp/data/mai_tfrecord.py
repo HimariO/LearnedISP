@@ -78,8 +78,10 @@ def load_train_patch(dataset_dir, PATCH_WIDTH, PATCH_HEIGHT, DSLR_SCALE):
   # train_answ = np.zeros((int(PATCH_WIDTH * DSLR_SCALE), int(PATCH_HEIGHT * DSLR_SCALE), 3))
 
   for i, img in enumerate(TRAIN_IMAGES):
+    # NOTE: raw image (256, 256) --> (128, 128, 4), rgb image (256, 256, 3)
     I = np.asarray(imageio.imread(os.path.join(train_directory_phone, str(img) + '.png')))
-    I = extract_bayer_channels(I)
+    I = I[..., None]
+    # I = extract_bayer_channels(I)
     # train_data[i, :] = I
     train_data.append(I)
     # import pdb; pdb.set_trace()
@@ -111,6 +113,7 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
       for sample in sample_list:
         raw_img, rgb_img = sample
         
+        # import pdb; pdb.set_trace()
         # assert short_raw.shape[:2] == long_rgb.shape[:2], \
         #     f"{short_raw.shape} != {long_rgb.shape}"
 
@@ -121,9 +124,9 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
                 dataset.MAI_RAW_INPUT.to_example_feature_fn(
                   tf.image.encode_png(raw_img).numpy()),
               dataset.MAI_RAW_INPUT_HEIGHT.key:
-                dataset.MAI_RAW_INPUT_HEIGHT.to_example_feature_fn(rgb_img.shape[0]),
+                dataset.MAI_RAW_INPUT_HEIGHT.to_example_feature_fn(raw_img.shape[0]),
               dataset.MAI_RAW_INPUT_WIDTH.key:
-                dataset.MAI_RAW_INPUT_WIDTH.to_example_feature_fn(rgb_img.shape[1]),
+                dataset.MAI_RAW_INPUT_WIDTH.to_example_feature_fn(raw_img.shape[1]),
               dataset.MAI_RGB_GROUND_TRUTH.key:
                 dataset.MAI_RGB_GROUND_TRUTH.to_example_feature_fn(
                   tf.image.encode_png(rgb_img).numpy()),
@@ -166,11 +169,11 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
 
 
 if __name__ == '__main__':
-  train_data, train_answ = load_train_patch(
-    '/home/ron/Downloads/LearnedISP',
-    256, 256, 1)
-  import pdb; pdb.set_trace()
+  # train_data, train_answ = load_train_patch(
+  #   '/home/ron/Downloads/LearnedISP',
+  #   256, 256, 1)
+  # import pdb; pdb.set_trace()
 
-  # create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord')
+  create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord')
 
   # fire.Fire(create_tfrecord)

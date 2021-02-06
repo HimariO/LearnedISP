@@ -1,6 +1,7 @@
 imageio
 pillow
-tensorflow
+# tensorflow
+tf-nightly
 loguru
 fire
 scikit-image

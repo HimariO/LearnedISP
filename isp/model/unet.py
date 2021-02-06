@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 from . import base
+from .io import dataset_element, model_prediction
 from .layers import *
 
 
@@ -35,7 +36,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    if WN:
+      layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
     return tf.keras.Sequential(layers=layers, name=name)
   
   def reverse_downsample_block(self, channel, name=None, WN=True):
@@ -44,7 +46,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    if WN:
+      layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
     return tf.keras.Sequential(layers=layers, name=name)
   
   def res_downsample_block(self, channel, name=None, WN=True):
@@ -52,7 +55,8 @@ class UNetBlocks:
       ResConvBlock(2, channel, weight_norm=WN),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = layers[:1] + [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[1:]]
+    if WN:
+      layers = layers[:1] + [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[1:]]
     return tf.keras.Sequential(layers=layers, name=name)
   
   def reverse_res_downsample_block(self, channel, name=None, WN=True):
@@ -60,7 +64,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
       ResConvBlock(2, channel, weight_norm=WN),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + layers[-1:]
+    if WN:
+      layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + layers[-1:]
     return tf.keras.Sequential(layers=layers, name=name)
   
   def conv_block(self, channel, name=None, WN=True):
@@ -68,7 +73,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    if WN:
+      layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
     return tf.keras.Sequential(layers=layers, name=name)
   
   def res_conv_block(self, channel, name=None, WN=True):
@@ -81,7 +87,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + [layers[-1]]
+    if WN:
+      layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + [layers[-1]]
     return tf.keras.Sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
@@ -107,7 +114,7 @@ class UNetBlocks:
     return tf.keras.Sequential(layers=layers, name=name)
 
 
-@base.register_prediction_model
+@base.register_model
 class UNet(base.RawBase, UNetBlocks):
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004, alpha=1.0, **kwargs):
@@ -115,17 +122,26 @@ class UNet(base.RawBase, UNetBlocks):
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
     C = lambda channel: max(int(channel * alpha), 16)
+    use_wn = True
 
-    self.block_x1 = self.downsample_block(C(32))
-    self.block_x2 = self.downsample_block(C(64))
-    self.block_x4 = self.downsample_block(C(128))
-    self.block_x8 = self.downsample_block(C(256))
-    self.block_ux8 = self.upsample_block(C(512))
-    self.block_ux4 = self.upsample_block(C(256))
-    self.block_ux2 = self.upsample_block(C(128))
-    self.block_ux1 = self.upsample_block(C(64))
-    self.last_block = self.conv_block(C(32))
-    self.transform = tf.keras.layers.Conv2D(12, 1)
+    self.block_x1 = self.downsample_block(C(32), WN=use_wn)
+    self.block_x2 = self.downsample_block(C(64), WN=use_wn)
+    self.block_x4 = self.downsample_block(C(128), WN=use_wn)
+    self.block_x8 = self.downsample_block(C(256), WN=use_wn)
+    self.block_ux8 = self.upsample_block(C(512), WN=use_wn)
+    self.block_ux4 = self.upsample_block(C(256), WN=use_wn)
+    self.block_ux2 = self.upsample_block(C(128), WN=use_wn)
+    self.block_ux1 = self.upsample_block(C(64), WN=use_wn)
+    self.last_block = self.conv_block(C(32), WN=use_wn)
+    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: rgb
+    }
   
   def _call(self, x, training=None, mask=None):
     top = x

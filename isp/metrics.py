@@ -35,19 +35,20 @@ def _transform_and_round_to_max_value_255_image(inputs, scale=None, offset=None)
 
 
 @register_prediction_metric
-class MaxValue255PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
+class PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
 
   COLOR_SPACE_Y = 'Y'
   COLOR_SPACE_RGB = 'RGB'
 
   def __init__(self, rgb_label_input_name, rgb_prediction_name, scale=None,
-         offset=None, border=0, color_space=None):
+         offset=None, border=0, color_space=None, uint8_image=False):
     super().__init__()
     self._rgb_label_input_name = rgb_label_input_name
     self._rgb_prediction_name = rgb_prediction_name
     self._scale = scale
     self._offset = offset
     self._border = border
+    self._uint8_image = uint8_image
     
     color_space = color_space or type(self).COLOR_SPACE_Y
     assert color_space in {type(self).COLOR_SPACE_Y, type(self).COLOR_SPACE_RGB}
@@ -62,12 +63,16 @@ class MaxValue255PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
   
   def update_state(self, y_true, y_pred, sample_weight=None):
     # We align the order of rounding and type casting with EDSR-PyTorch.
-    label = _transform_and_round_to_max_value_255_image(
-      y_true[self._rgb_label_input_name], scale=self._scale,
-      offset=self._offset) / 255.0
-    prediction = _transform_and_round_to_max_value_255_image(
-      y_pred[self._rgb_prediction_name], scale=self._scale,
-      offset=self._offset) / 255.0
+    if self._uint8_image:
+      label = _transform_and_round_to_max_value_255_image(
+        y_true, scale=self._scale,
+        offset=self._offset) / 255.0
+      prediction = _transform_and_round_to_max_value_255_image(
+        y_pred, scale=self._scale,
+        offset=self._offset) / 255.0
+    else:
+      label = y_true
+      prediction = y_pred
 
     if self._color_space == type(self).COLOR_SPACE_Y:
       label = tf.tensordot(
@@ -86,6 +91,7 @@ class MaxValue255PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
       label = label[..., roi_slice, roi_slice, :]
       prediction = prediction[..., roi_slice, roi_slice, :]
     
+    prediction = tf.clip_by_value(prediction, 0.0, 1.0)
     psnr = tf.image.psnr(label, prediction, 1.0)  # (batch_size, 1)
     
     self._psnr_counter.assign_add(tf.cast(tf.shape(psnr)[0], tf.float32))
