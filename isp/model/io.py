@@ -7,6 +7,7 @@ class dataset_element:
   SID_RAW = ''
   SID_RGB_GROUND_TRUTH = ''
 
+  MAI_SMAPLE_ID = 'mai2021_sample_id'
   MAI_RAW_PATCH = 'mai2021_raw_img_patch'
   MAI_DSLR_PATCH = 'mai2021_dslr_groundtruth'
 

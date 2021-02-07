@@ -85,7 +85,18 @@ class MSSSIM(tf.keras.losses.Loss):
 
   def call(self, y_true, y_pred):
     # import pdb; pdb.set_trace()
-    return tf.image.ssim_multiscale(
+    return 1 - tf.image.ssim_multiscale(
         y_true,
         y_pred,
         1.0)
+
+
+class HypbirdSSIM(tf.keras.losses.Loss):
+
+  def call(self, y_true, y_pred):
+    # import pdb; pdb.set_trace()
+    ms_ssim = 1 - tf.image.ssim_multiscale(y_true, y_pred, 1.0)
+    mse = tf.reduce_mean(tf.keras.losses.mse(y_true, y_pred))
+    l1 = tf.reduce_mean(tf.abs(y_true - y_pred))
+    struct_loss = (ms_ssim * 0.8 + l1 * 0.2)
+    return mse + struct_loss

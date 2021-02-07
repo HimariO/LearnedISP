@@ -61,6 +61,13 @@ SID_RGB_GROUND_TRUTH_EXPOSURE = TFExampleFeature(
     tf.io.FixedLenFeature([], tf.float32)
 )
 
+
+MAI_SAMPLE_ID = TFExampleFeature(
+    'mai/id',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=[value])),
+    tf.io.FixedLenFeature([], tf.int64)
+)
 MAI_RAW_INPUT = TFExampleFeature(
     'mai/raw_input',
     lambda value: tf.train.Feature(
@@ -118,7 +125,10 @@ def split_train_valid(dataset: tf.data.Dataset, val_ratio_or_size=0.1):
     V = int(val_ratio_or_size * N)
     val_set = dataset.take(V)
     train_set = dataset.skip(V)
-  return train_set, val_set
+  
+  return (
+    train_set.repeat().prefetch(tf.data.AUTOTUNE),
+    val_set.prefetch(tf.data.AUTOTUNE))
 
 
 class TFRecordDataset(Base):
@@ -169,7 +179,7 @@ class TFRecordDataset(Base):
     example_dataset = tf.data.TFRecordDataset(tf_record_paths, num_parallel_reads=num_readers)
     
     if shuffle:
-      example_dataset = example_dataset.shuffle(1024)
+      example_dataset = example_dataset.shuffle(4096)
     if cache_examples:
       example_dataset = example_dataset.cache()
     
@@ -180,12 +190,14 @@ class TFRecordDataset(Base):
                      num_parallel_calls=1, drop_remainder=False,
                      cache_examples=False):
     dataset = self._create_example_dataset(num_readers, shuffle, cache_examples)
-    if shuffle:
-      dataset = dataset.apply(
-          tf.data.experimental.shuffle_and_repeat(shuffle_buffer_size,
-                                             count=num_epochs))
-    else:
-      dataset = dataset.repeat(count=num_epochs)
+    # dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+    # if shuffle:
+    #   dataset = dataset.apply(
+    #       tf.data.experimental.shuffle_and_repeat(shuffle_buffer_size,
+    #                                          count=num_epochs))
+    # else:
+    #   dataset = dataset.repeat(count=num_epochs)
 
     def parse_and_preprocess_record(record):
       input_name_to_tensor = self._parse_tf_record(record)
@@ -202,7 +214,7 @@ class TFRecordDataset(Base):
               parse_and_preprocess_record, batch_size,
               drop_remainder=drop_remainder,
               num_parallel_calls=num_parallel_calls))
-    return dataset.prefetch(tf.data.experimental.AUTOTUNE)
+    return dataset
 
 
 @register_dataset
@@ -299,7 +311,7 @@ class MaiIspTFRecordDataset(TFRecordDataset):
   def tf_record_paths(self):
     return list(self._tf_record_paths)
 
-  def _normalize_rgb_image(self, img, scale=128, offset=-128):
+  def _normalize_rgb_image(self, img, scale=255, offset=0):
     return (img + offset) / scale
 
   def _parse_tf_record(self, record):
@@ -309,12 +321,14 @@ class MaiIspTFRecordDataset(TFRecordDataset):
         features={
             feature.key: feature.feature_configuration
             for feature in [MAI_RAW_INPUT,
+                            MAI_SAMPLE_ID,
                             MAI_RAW_INPUT_HEIGHT,
                             MAI_RAW_INPUT_WIDTH,
                             MAI_RGB_GROUND_TRUTH,]
         })
     
     black_level = 144
+    sample_id = tf.cast(key_to_feature[MAI_SAMPLE_ID.key], tf.int32)
     img_height = tf.cast(key_to_feature[MAI_RAW_INPUT_HEIGHT.key], tf.int32)
     img_width = tf.cast(key_to_feature[MAI_RAW_INPUT_WIDTH.key], tf.int32)
     
@@ -342,6 +356,7 @@ class MaiIspTFRecordDataset(TFRecordDataset):
 
     return (
       {
+        dataset_element.MAI_SMAPLE_ID: sample_id,
         dataset_element.MAI_RAW_PATCH: raw_image,
         dataset_element.MAI_DSLR_PATCH: rgb_ground_truth,
       },
@@ -352,13 +367,53 @@ class MaiIspTFRecordDataset(TFRecordDataset):
 
 
 if __name__ == '__main__':
+
+  def check_split():
+    train_set = MaiIspTFRecordDataset(
+        tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp.*.tfrecord'
+      ).create_dataset(
+          batch_size=64,
+          num_readers=4,
+          num_parallel_calls=8
+      ).prefetch(tf.data.AUTOTUNE)
+
+    val_set = MaiIspTFRecordDataset(
+        tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp_val.*.tfrecord'
+      ).create_dataset(
+          batch_size=64,
+          num_readers=4,
+          num_parallel_calls=8
+      ).prefetch(tf.data.AUTOTUNE)
+
+    train_sample = []
+    for d, y in train_set:
+      idx = list(d[dataset_element.MAI_SMAPLE_ID].numpy())
+      train_sample += idx
+    
+    val_sample = []
+    for d, y in val_set:
+      idx = list(d[dataset_element.MAI_SMAPLE_ID].numpy())
+      val_sample += idx
+    
+    train_sample = set(train_sample)
+    val_sample = set(val_sample)
+    union = train_sample.intersection(val_sample)
+    print(min(train_sample), max(train_sample))
+    print(min(val_sample), max(val_sample))
+    import pdb; pdb.set_trace()
+    print(union)
+
   with logger.catch():
-    mai_isp = MaiIspTFRecordDataset(
-      tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/*.tfrecord')
-    dataset = mai_isp.create_dataset(batch_size=8)
-    for data in dataset:
-      for d in data:
-        for k, v in d.items():
-          print(k, v.shape, v.dtype)
-      break
+    # mai_isp = MaiIspTFRecordDataset(
+    #   tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/*.tfrecord')
+    # dataset = mai_isp.create_dataset(batch_size=8)
+    # for data in dataset:
+    #   for d in data:
+    #     for k, v in d.items():
+    #       print(k, v.shape, v.dtype)
+    #   break
+
+    check_split()
+    
+
   

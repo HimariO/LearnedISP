@@ -111,7 +111,7 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
     print(f'Open {output_path}')
     with tf.io.TFRecordWriter(output_path) as writer:
       for sample in sample_list:
-        raw_img, rgb_img = sample
+        sample_id, raw_img, rgb_img = sample
         
         # import pdb; pdb.set_trace()
         # assert short_raw.shape[:2] == long_rgb.shape[:2], \
@@ -120,6 +120,8 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
         example = tf.train.Example(
           features=tf.train.Features(
             feature={
+              dataset.MAI_SAMPLE_ID.key:
+                dataset.MAI_SAMPLE_ID.to_example_feature_fn(sample_id),
               dataset.MAI_RAW_INPUT.key:
                 dataset.MAI_RAW_INPUT.to_example_feature_fn(
                   tf.image.encode_png(raw_img).numpy()),
@@ -142,7 +144,7 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
     
     if type == 'train':
       raw_imgs, rgb_imgs = load_train_patch(mai_root_dir, 256, 256, 1)
-      iterator = zip(raw_imgs, rgb_imgs)
+      iterator = zip(range(len(raw_imgs)), raw_imgs, rgb_imgs)
     elif type == 'val' or type == 'eval':
       # iterator = reader.iter_val_or_eval(data_type=type)
       raise NotImplementedError('Ground truth not availble yet')
