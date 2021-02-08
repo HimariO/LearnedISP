@@ -99,3 +99,25 @@ class PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
 
   def result(self):
     return self._psnr_sum / self._psnr_counter
+
+
+@register_prediction_metric
+class CacheOutput(tf.keras.metrics.Metric, PredictionMetricBase):
+
+  def __init__(self, **kwargs):
+    super().__init__()
+    self.y_pred = None
+    self.y_ture = None
+
+  def update_state(self, y_true, y_pred, sample_weight=None):
+    self.y_pred = y_pred
+    self.y_true = y_true
+
+  def result(self):
+    if self.y_pred is not None and self.y_true is not None:
+      return [
+        self.y_pred, 
+        self.y_true,
+      ]
+    else:
+      return 0.0

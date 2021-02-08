@@ -132,3 +132,4 @@ dmypy.json
 checkpoints
 ckpt
 *.h5
+*.tflite

@@ -26,7 +26,7 @@ class RawBase(tf.keras.models.Model):
         norm_label = name_to_label[dataset_element.MAI_DSLR_PATCH]
         scaled_label = self.output_to_uint8_rgb(norm_label)
         tf.summary.image(label_summary_name, scaled_label, step=step)
-
+  
 
 _TAG_TO_PREDICTION_MODEL = {}
 

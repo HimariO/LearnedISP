@@ -15,7 +15,8 @@ class WeightNormalization(tfa.layers.WeightNormalization):
     def call(self, inputs):
         """Call `Layer`"""
         if self.inference_mode:
-            self.layer.kernel = tf.nn.l2_normalize(self.v, axis=self.kernel_norm_axes) * self.g
+            if not isinstance(self.layer.kernel, tf.Variable):
+                self.layer.kernel = tf.nn.l2_normalize(self.v, axis=self.kernel_norm_axes) * self.g
             return self.layer(inputs)
         else:
             def _do_nothing():

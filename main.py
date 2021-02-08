@@ -1,18 +1,19 @@
 import os
-
-from tensorflow.keras import callbacks
-
-from isp.model import unet
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
+import fire
+import numpy as np
 import tensorflow as tf
 from loguru import logger
+from tensorflow.keras import callbacks
 
-from isp.model.unet import UNet, UNetResX2R, UNetRes
-from isp.model import io
-from isp.data import dataset
 from isp import metrics
 from isp import losses
+from isp import callbacks
+from isp.model import io
+from isp.data import dataset
+from isp.model.unet import UNet, UNetResX2R, UNetRes
+from isp.model import layers
 
 
 def soft_gpu_meme_growth():
@@ -66,6 +67,7 @@ def simple_train(model_dir):
     io.dataset_element.MAI_DSLR_PATCH,
     io.model_prediction.ENHANCE_RGB
   )
+  cache_model_out = metrics.CacheOutput()
   ms_ssim = losses.HypbirdSSIM(
     # io.dataset_element.MAI_DSLR_PATCH,
     # io.model_prediction.ENHANCE_RGB
@@ -87,7 +89,7 @@ def simple_train(model_dir):
         batch_size=64,
         num_readers=4,
         num_parallel_calls=8
-    ).prefetch(tf.data.AUTOTUNE)
+    )
     
   
   # iter_data(train_set)
@@ -101,7 +103,7 @@ def simple_train(model_dir):
       io.model_prediction.ENHANCE_RGB: ms_ssim
     },
     metrics={
-      io.model_prediction.ENHANCE_RGB: psnr,
+      io.model_prediction.ENHANCE_RGB: [psnr, cache_model_out],
     }
   )
   # unet.summary()
@@ -112,6 +114,7 @@ def simple_train(model_dir):
     log_dir=log_dir,
     write_images=True,
     write_graph=True)
+  write_image = callbacks.SaveValImage(log_dir)
   
   ckpt_path = os.path.join(model_dir, 'checkpoint')
   checkpoint = tf.keras.callbacks.ModelCheckpoint(
@@ -130,12 +133,66 @@ def simple_train(model_dir):
     callbacks=[
       tensorbaord,
       checkpoint,
+      write_image,
     ]
   )
 
 
-with logger.catch():
-  soft_gpu_meme_growth()
-  simple_train('./checkpoints/unet_res_bil_hyp')
+def tflite_convert(model_dir, output_path):
 
-  # board_check()
+  def remove_weight_norm(model: tf.keras.Model):
+    for layer in model.layers:
+      if isinstance(layer, layers.WeightNormalization):
+        layer.remove()
+      elif hasattr(layer, 'layers'):
+        remove_weight_norm(layer)
+
+  net = UNetRes('train', alpha=0.5, weight_norm=False)
+  payload = np.random.normal(size=[1, 320, 240, 4]).astype(np.float32)
+  net.predict({
+    io.dataset_element.MAI_RAW_PATCH: payload
+  })
+  net.load_weights(model_dir)
+  
+  tf_pred = net.predict({
+    io.dataset_element.MAI_RAW_PATCH: payload
+  })
+  remove_weight_norm(net)
+  
+  x = tf.keras.Input(shape=[320, 240, 4], batch_size=1, dtype=tf.float32)
+  y = net._call(x)
+  functional_net = tf.keras.models.Model(x, y)
+  # for z in functional_net.inputs:
+  #   z.set_shape([320, 240, 4])
+  
+  converter = tf.lite.TFLiteConverter.from_keras_model(functional_net)
+  converter.optimizations = [tf.lite.Optimize.DEFAULT]
+  tflite_model = converter.convert()
+
+  with open(output_path, mode='wb') as f:
+    f.write(tflite_model)
+  
+  lite_net = tf.lite.Interpreter(model_path=output_path)
+  lite_net.allocate_tensors()
+  
+  input_tensor_id = lite_net.get_input_details()[0]['index']
+  lite_net.set_tensor(input_tensor_id, payload)
+  lite_net.invoke()
+
+  output_tensor_id = lite_net.get_output_details()[0]['index']
+  lite_pred = lite_net.get_tensor(output_tensor_id)
+
+  print(np.abs(tf_pred[io.model_prediction.ENHANCE_RGB] - lite_pred).mean())
+
+if __name__ == '__main__':
+
+  with logger.catch():
+    soft_gpu_meme_growth()
+
+    fire.Fire({
+      'simple_train': simple_train,
+      'tflite_convert': tflite_convert,
+    })
+    # simple_train('./checkpoints/unet_res_bil_hyp_large')
+
+    # board_check()
