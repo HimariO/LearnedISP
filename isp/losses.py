@@ -91,6 +91,7 @@ class MSSSIM(tf.keras.losses.Loss):
         1.0)
 
 
+@register_prediction_loss
 class HypbirdSSIM(tf.keras.losses.Loss):
 
   def call(self, y_true, y_pred):

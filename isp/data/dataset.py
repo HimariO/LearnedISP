@@ -133,12 +133,8 @@ def split_train_valid(dataset: tf.data.Dataset, val_ratio_or_size=0.1):
 
 class TFRecordDataset(Base):
 
-  def __init__(self, data_preprocessing_tag_and_init_kwargs_pairs=None):
-    self._data_preprocessing_callables = [
-        aug.get_data_preprocessing_callable(name)(**init_kwargs)
-        for name, init_kwargs in
-        (data_preprocessing_tag_and_init_kwargs_pairs or [])
-    ]
+  def __init__(self, data_preprocessing_callables=[]):
+    self._data_preprocessing_callables = data_preprocessing_callables
 
   @abc.abstractmethod
   def _parse_tf_record(self, record):
@@ -222,11 +218,11 @@ class SIDTFRecordDataset(TFRecordDataset):
 
   BIT_DEPTH = 16383.0 
 
-  def __init__(self, data_preprocessing_tag_and_init_kwargs_pairs=None,
+  def __init__(self, data_preprocessing_callables=[],
                tf_record_path_pattern=None, is_verification_dataset=False):
     super().__init__(
-        data_preprocessing_tag_and_init_kwargs_pairs=(
-            data_preprocessing_tag_and_init_kwargs_pairs))
+        data_preprocessing_callables=(
+            data_preprocessing_callables))
     assert tf_record_path_pattern is not None
     self._tf_record_paths = tf.io.gfile.glob(tf_record_path_pattern)
     self._is_verification_dataset = is_verification_dataset
@@ -298,11 +294,11 @@ class MaiIspTFRecordDataset(TFRecordDataset):
 
   def __init__(self, 
       tf_record_path_pattern=None,
-      data_preprocessing_tag_and_init_kwargs_pairs=None,
+      data_preprocessing_callables=[],
       is_verification_dataset=False):
     super().__init__(
-        data_preprocessing_tag_and_init_kwargs_pairs=(
-            data_preprocessing_tag_and_init_kwargs_pairs))
+        data_preprocessing_callables=(
+            data_preprocessing_callables))
     assert tf_record_path_pattern is not None
     self._tf_record_paths = tf.io.gfile.glob(tf_record_path_pattern)
     self._is_verification_dataset = is_verification_dataset

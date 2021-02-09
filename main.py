@@ -10,6 +10,7 @@ from tensorflow.keras import callbacks
 from isp import metrics
 from isp import losses
 from isp import callbacks
+from isp import experiment
 from isp.model import io
 from isp.data import dataset
 from isp.model.unet import UNet, UNetResX2R, UNetRes
@@ -62,11 +63,8 @@ def simple_train(model_dir, load_weight=None):
   # policy = tf.keras.mixed_precision.Policy('mixed_float16')
   # tf.keras.mixed_precision.set_global_policy(policy)
 
-  unet = UNetRes('train', alpha=0.5)
-  psnr = metrics.PSNR(
-    io.dataset_element.MAI_DSLR_PATCH,
-    io.model_prediction.ENHANCE_RGB
-  )
+  unet = UNet('train', alpha=1.5)
+  psnr = metrics.PSNR()
   cache_model_out = metrics.CacheOutput()
   ms_ssim = losses.HypbirdSSIM(
     # io.dataset_element.MAI_DSLR_PATCH,
@@ -100,7 +98,7 @@ def simple_train(model_dir, load_weight=None):
   unet.compile(
     optimizer=adam,
     loss={
-      io.model_prediction.ENHANCE_RGB: ms_ssim
+      io.model_prediction.ENHANCE_RGB: mse
     },
     metrics={
       io.model_prediction.ENHANCE_RGB: [psnr, cache_model_out],
@@ -131,8 +129,8 @@ def simple_train(model_dir, load_weight=None):
     steps_per_epoch=2000,
     epochs=20,
     validation_data=val_set,
-    use_multiprocessing=True,
-    workers=4,
+    use_multiprocessing=False,
+    workers=1,
     callbacks=[
       tensorbaord,
       checkpoint,
@@ -269,6 +267,11 @@ def eval_tf_model(model_path):
   print(f"mean_psnr: {mean_psnr}")
 
 
+def run_experiment(config_path, load_weight=None):
+  config = experiment.ExperimentConfig(config_path)
+  exp = experiment.Experiment(config)
+  exp.train(load_weight=load_weight)
+
 
 if __name__ == '__main__':
 
@@ -280,6 +283,7 @@ if __name__ == '__main__':
       'tflite_convert': tflite_convert,
       'eval_tflite_model': eval_tflite_model,
       'eval_tf_model': eval_tf_model,
+      'run_experiment': run_experiment,
     })
     # simple_train('./checkpoints/unet_res_bil_hyp_large')
 

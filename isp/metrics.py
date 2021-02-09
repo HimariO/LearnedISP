@@ -34,11 +34,16 @@ def _transform_and_round_to_max_value_255_image(inputs, scale=None, offset=None)
   return tf.clip_by_value(tf.round(inputs), 0.0, 255.0)
 
 
+"""
+Custom Keras Metrics
+"""
+
+
 @register_prediction_metric
 class PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
 
 
-  def __init__(self, rgb_label_input_name, rgb_prediction_name):
+  def __init__(self):
     super().__init__()
     self._psnr_sum = self.add_weight('psnr_sum', [], initializer='zeros')
     self._psnr_counter = self.add_weight('psnr_counter', [], initializer='zeros')
