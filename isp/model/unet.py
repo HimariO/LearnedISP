@@ -143,7 +143,7 @@ class UNetBilinearBlocks(UNetBlocks):
     layers = [
         tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
     ]
-    layers += [tf.keras.layers.Conv2D(12, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
+    layers += [tf.keras.layers.Conv2D(8, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
     return tf.keras.Sequential(layers=layers, name=name)
 
@@ -304,7 +304,8 @@ class UNetRes(base.RawBase, UNetBilinearBlocks):
     self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
     self.up_x2_x1 = self.upsample_layer(C(32))
     self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
-    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    self.transform = self.rgb_upsample_block(num_rgb_layer=3)
 
     self._first_kernel = None
   
@@ -336,7 +337,9 @@ class UNetRes(base.RawBase, UNetBilinearBlocks):
     x = tf.concat([x, x1], axis=-1)
     x = self.last_conv(x)
     x = self.transform(x)
-    return tf.nn.depth_to_space(x, 2)
+    
+    # return tf.nn.depth_to_space(x, 2)
+    return x
 
   def swap_input_filter_order(self, flat_raw_pattern):
     assert type(flat_raw_pattern) is list

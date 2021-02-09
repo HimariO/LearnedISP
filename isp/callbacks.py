@@ -51,3 +51,25 @@ class SaveValImage(tf.keras.callbacks.Callback):
           true_img[:self.sample_per_batch],
           step=global_step,
         )
+
+
+class DevCall(tf.keras.callbacks.Callback):
+  """
+  Must using with CacheOutput metric to passthrough model's output to 'logs' args
+  """
+
+  def __init__(self):
+    super().__init__()
+    self.train_steps_cnt = 0
+    self.test_steps_cnt = 0
+  
+  def on_batch_end(self, batch, logs):
+    print('batch: ', self.train_steps_cnt)
+    print('-' * 100)
+    self.train_steps_cnt += 1
+  
+    
+  def on_test_batch_end(self, batch, logs):
+    print('test batch: ', self.test_steps_cnt)
+    print('-' * 100)
+    self.test_steps_cnt += 1

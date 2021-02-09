@@ -1,5 +1,7 @@
 # %%
 import os
+
+from tensorflow.python.keras.backend import dtype
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 import fire
@@ -31,7 +33,7 @@ net.predict({
     io.dataset_element.MAI_RAW_PATCH: 
       np.zeros([1, 128, 128, 4], dtype=np.float32)
 })
-net.load_weights('checkpoints/unet_res_bil_hyp/checkpoint')
+net.load_weights('checkpoints/dev/checkpoint')
 
 # %%
 
@@ -40,7 +42,7 @@ t = net2.predict({
     io.dataset_element.MAI_RAW_PATCH: 
       np.zeros([1, 128, 128, 4], dtype=np.float32)
 })
-net2.load_weights('checkpoints/unet_res_bil_hyp/checkpoint')
+net2.load_weights('checkpoints/dev/checkpoint')
 remove_weight_norm(net2)
 # net2.build([1, 320, 240, 4])
 # %%
@@ -57,7 +59,7 @@ lite_net = tf.lite.Interpreter(model_path='net.tflite')
 # %%
 
 val_set = dataset.MaiIspTFRecordDataset(
-      tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp.*.tfrecord'
+      tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp_val.*.tfrecord'
     ).create_dataset(
         batch_size=64,
         num_readers=4,
@@ -72,8 +74,48 @@ for x, y in val_set:
 # %%
 
 import matplotlib.pyplot as plt
-
-img = np.clip(t['enhanced_rgb'][1], 0, 1) * 255
+idx = 3
+img = np.clip(t['enhanced_rgb'][idx], 0, 1) * 255
 img = img.astype(np.uint8)
 plt.imshow(img)
+plt.title('prediction')
+plt.show()
+
+yimg = np.clip(y['enhanced_rgb'][idx], 0, 1) * 255
+yimg = yimg.astype(np.uint8)
+plt.imshow(yimg)
+plt.title('ground truth')
+plt.show()
+# %%
+
+def run_interpreter(inter, x):
+  input_tensor_id = inter.get_input_details()[0]['index']
+  inter.set_tensor(input_tensor_id, x)
+  inter.invoke()
+  
+  output_tensor_id = inter.get_output_details()[0]['index']
+  lite_pred = inter.get_tensor(output_tensor_id)
+  return lite_pred
+
+lite_net = tf.lite.Interpreter(model_path='net.tflite')
+lite_net.allocate_tensors()
+
+lite_pred = run_interpreter(lite_net, x['mai2021_raw_img_patch'].numpy()[idx: idx+1])
+# %%
+
+img2 = np.clip(lite_pred[0], 0, 1) * 255
+img2 = img.astype(np.uint8)
+plt.imshow(img2)
+
+# %%
+
+psnr = metrics.PSNR(
+  io.dataset_element.MAI_DSLR_PATCH,
+  io.model_prediction.ENHANCE_RGB
+)
+
+A = np.zeros([1, 20, 20, 3], dtype=np.float32)
+B = np.ones([1, 20, 20, 3], dtype=np.float32)
+p = tf.image.psnr(A, B, 1.0)
+print(p)
 # %%
