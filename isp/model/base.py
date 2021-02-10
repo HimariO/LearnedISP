@@ -3,7 +3,6 @@ import tensorflow as tf
 from .io import model_prediction, dataset_element
 
 
-
 class RawBase(tf.keras.models.Model):
 
   def output_to_uint8_rgb(self, output_tensor):
@@ -32,7 +31,7 @@ _TAG_TO_PREDICTION_MODEL = {}
 
 
 def register_model(prediction_model):
-  assert issubclass(prediction_model, RawBase)
+  # assert issubclass(prediction_model, RawBase)
   tag = prediction_model.__name__
   assert tag not in _TAG_TO_PREDICTION_MODEL
   _TAG_TO_PREDICTION_MODEL[tag] = prediction_model
