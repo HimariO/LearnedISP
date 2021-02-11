@@ -8,9 +8,9 @@
         "batch_size": 64
       },
       "model": {
-        "type": "UNetRes2Stage",
+        "type": "functinoal_unet_res_2_stage",
         "init_param": {
-          "args": ["train"],
+          "args": [],
           "kwargs": {
               "alpha": 0.5
           }

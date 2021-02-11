@@ -37,8 +37,9 @@ class SaveValImage(tf.keras.callbacks.Callback):
     
     if self.test_steps_cnt % self.test_summary_freq == 0:
       # import pdb; pdb.set_trace()
-      assert self.log_key in logs
-      last_eval = logs[self.log_key]
+      match = list(filter(lambda x: self.log_key in x, logs.keys()))
+      assert len(match) == 1
+      last_eval = logs[match[0]]
 
       with self.writer.as_default():
         pred_img = self.fp_img_to_uint8(last_eval[0])

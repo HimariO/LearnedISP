@@ -1,8 +1,10 @@
 import tensorflow as tf
+from tensorflow.python.keras.engine.input_layer import Input
 
 from . import base
 from .io import dataset_element, model_prediction
 from .layers import *
+from isp import model
 
 
 class ResConvBlock(tf.keras.Model):
@@ -423,20 +425,38 @@ class UNetRes2Stage(base.RawBase, UNetBilinearBlocks):
     x = tf.concat([x, x4], axis=-1)
     x = ux4 = self.block_ux4(x)
 
-    x = self.up_x4_x2(x)
-    x = tf.concat([x, x2], axis=-1)
-    x = self.block_ux2(x)
-    x = self.up_x2_x1(x)
-    x = tf.concat([x, x1], axis=-1)
-    x = self.last_conv(x)
-    x_rgb = tf.nn.depth_to_space(self.transform(x), 2)
-
-    x = self.up_x4_x2_rec(ux4)
+    x = rec_x2 = self.up_x4_x2_rec(ux4)
     x = tf.concat([x, x2], axis=-1)
     # x = self.block_ux2_rec(x)
-    x = self.up_x2_x1_rec(x)
+    x = rec_x1 = self.up_x2_x1_rec(x)
     x = tf.concat([x, x1], axis=-1)
     x = self.last_conv_rec(x)
     x_gray = tf.nn.depth_to_space(self.transform_rec(x), 2)
     
+    x = self.up_x4_x2(ux4)
+    x = tf.concat([x, x2, rec_x2], axis=-1)
+    x = self.block_ux2(x)
+    x = self.up_x2_x1(x)
+    x = tf.concat([x, x1, rec_x1], axis=-1)
+    x = self.last_conv(x)
+    x_rgb = tf.nn.depth_to_space(self.transform(x), 2)
+
     return x_rgb, x_gray
+
+
+@base.register_model
+def functinoal_unet_res_2_stage(alpha=0.5, input_shape=[128, 128, 4]):
+  unet = UNetRes2Stage('train', alpha=0.5)
+  x_layer = tf.keras.Input(shape=input_shape)
+  y1, y2 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  y2 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.INTER_MID_GRAY)(y2)
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+    model_prediction.INTER_MID_GRAY: y2,
+  }
+  return tf.keras.Model(inputs=input_dict, outputs=output_dict)
