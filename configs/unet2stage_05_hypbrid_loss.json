@@ -1,16 +1,16 @@
 {
       "general": {
         "learning_rate": 0.0001,
-        "model_dir": "checkpoints/hrnet_05_hypssim",
+        "model_dir": "checkpoints/unet2stage_05_hypssim",
         "log_dir": "",
         "epoch": 50,
         "scheduler": "cycle",
-        "batch_size": 128
+        "batch_size": 64
       },
       "model": {
-        "type": "HRNet",
+        "type": "UNetRes2Stage",
         "init_param": {
-          "args": [],
+          "args": ["train"],
           "kwargs": {
               "alpha": 0.5
           }
@@ -27,6 +27,12 @@
           "args": [],
           "kwargs": {},
           "target_output": "enhanced_rgb"
+        },
+        {
+          "type": "MSE",
+          "args": [],
+          "kwargs": {},
+          "target_output": "intermidate_grayscale"
         }
       ],
       "metrics": [
@@ -39,7 +45,9 @@
         {
           "type": "CacheOutput",
           "args": [],
-          "kwargs": {},
+          "kwargs": {
+            "log_key": "enhanced_rgb_cache_output"
+          },
           "target_output": "enhanced_rgb"
         }
       ],
@@ -73,8 +81,13 @@
           "type": "RandomFlip",
           "args": [],
           "kwargs": {
-              "top_down": true
+              "top_down": false
           }
+        },
+        {
+          "type": "InsertGrayscale",
+          "args": [],
+          "kwargs": {}
         }
       ],
       "callback":[]

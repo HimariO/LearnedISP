@@ -1,6 +1,7 @@
 import abc
 
 import tensorflow as tf
+from loguru import logger
 from ..model import io
 
 class DataPreprocessingBase(abc.ABC):
@@ -56,6 +57,7 @@ class RandomFlip(DataPreprocessingBase):
       label = label_dict[label_name]
       # NOTE: apply only if label if a image or mask
       if len(label.shape) >= 3:
+        logger.debug("RandomFlip")
         label = tf.cond(
           to_flip,
           true_fn=lambda: (
@@ -66,5 +68,30 @@ class RandomFlip(DataPreprocessingBase):
           false_fn=lambda: label,
         )
         label_dict[label_name] = label
+    
+    return input_dict, label_dict
+
+
+@register_preprocessing_callable
+class InsertGrayscale(DataPreprocessingBase):
+  """
+  Create grayscale version of groundtruth image for two-tage ISP model
+  NOTE: this preprocessor must be put in the end of the pipeline
+  """
+
+  def __init__(self):
+    super().__init__()
+
+  def __call__(self, input_and_label):
+    logger.debug("InsertGrayscale")
+    input_dict, label_dict = input_and_label
+    
+    if io.model_prediction.ENHANCE_RGB in label_dict:
+      img = label_dict[io.model_prediction.ENHANCE_RGB]
+      label_dict[io.model_prediction.INTER_MID_GRAY] = tf.reduce_mean(img, axis=-1, keepdims=True)
+    
+    if io.dataset_element.MAI_DSLR_PATCH in label_dict:
+      img = label_dict[io.dataset_element.MAI_DSLR_PATCH]
+      label_dict[io.dataset_element.MAI_DSLR_GRAY_PATCH] = tf.reduce_mean(img, axis=-1, keepdims=True)
     
     return input_dict, label_dict

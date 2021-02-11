@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 from loguru import logger
 from tensorflow.keras import callbacks
+import matplotlib.pyplot as plt
 
 from isp.model import io
 from isp import metrics
@@ -16,6 +17,7 @@ from isp import losses
 from isp.data import dataset
 from isp.model.unet import UNet, UNetResX2R, UNetRes
 from isp.model import layers
+from isp import experiment
 
 
 def remove_weight_norm(model: tf.keras.Model):
@@ -33,7 +35,12 @@ net.predict({
     io.dataset_element.MAI_RAW_PATCH: 
       np.zeros([1, 128, 128, 4], dtype=np.float32)
 })
-net.load_weights('checkpoints/dev/checkpoint')
+# net.load_weights('checkpoints/dev/checkpoint')
+net.summary()
+
+in_layer = tf.keras.Input([128, 128, 4])
+y = net._call(in_layer)
+fun_net = tf.keras.Model(in_layer, y)
 
 # %%
 
@@ -73,7 +80,7 @@ for x, y in val_set:
   break
 # %%
 
-import matplotlib.pyplot as plt
+
 idx = 3
 img = np.clip(t['enhanced_rgb'][idx], 0, 1) * 255
 img = img.astype(np.uint8)
@@ -118,4 +125,30 @@ A = np.zeros([1, 20, 20, 3], dtype=np.float32)
 B = np.ones([1, 20, 20, 3], dtype=np.float32)
 p = tf.image.psnr(A, B, 1.0)
 print(p)
+# %%
+
+config_path = 'configs/unet_05_hypbrid_loss.json'
+config = experiment.ExperimentConfig(config_path)
+exp = experiment.Experiment(config)
+tf_dataset = exp.builder.get_train_dataset()
+
+# %%
+
+for x, y in tf_dataset:
+  raw_rgb = x[io.dataset_element.MAI_RAW_PATCH][0, ..., :3]
+  plt.imshow(raw_rgb)
+  plt.show()
+
+  dslr = y[io.model_prediction.ENHANCE_RGB][0]
+  plt.imshow(dslr)
+  plt.show()
+
+  break
+# %%
+
+import os, psutil
+process = psutil.Process(os.getpid())
+print(process.memory_info().rss // 2**20)  # in bytes 
+
+
 # %%

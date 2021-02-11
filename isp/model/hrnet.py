@@ -247,24 +247,33 @@ def make_branch3_3(x, out_filters=256):
 
 def fuse_layer3(x, base_filter=32):
   x0_0 = x[0]
+  
   x0_1 = Conv2D(base_filter, 1, use_bias=False, kernel_initializer='he_normal')(x[1])
   x0_1 = BatchNormalization(axis=3)(x0_1)
   x0_1 = UpSampling2D(size=(2, 2), interpolation='bilinear')(x0_1)
+  
   x0_2 = Conv2D(base_filter, 1, use_bias=False, kernel_initializer='he_normal')(x[2])
   x0_2 = BatchNormalization(axis=3)(x0_2)
   x0_2 = UpSampling2D(size=(4, 4), interpolation='bilinear')(x0_2)
+  
   x0_3 = Conv2D(base_filter, 1, use_bias=False, kernel_initializer='he_normal')(x[3])
   x0_3 = BatchNormalization(axis=3)(x0_3)
   x0_3 = UpSampling2D(size=(8, 8), interpolation='bilinear')(x0_3)
+  
   x0 = concatenate([x0_0, x0_1, x0_2, x0_3], axis=-1)
   return x0
 
 
 def final_layer(x, classes=1):
-  x = UpSampling2D(size=(2, 2))(x)
-  x = Conv2D(classes, 1, use_bias=False, kernel_initializer='he_normal')(x)
+  x = UpSampling2D(size=(2, 2), interpolation='bilinear')(x)
+  
+  x = Conv2D(16, 3, use_bias=False, kernel_initializer='he_normal', padding='same')(x)
   x = BatchNormalization(axis=3)(x)
-  x = Activation('sigmoid', name='Classification')(x)
+  x = Activation('relu')(x)
+  
+  x = Conv2D(classes, 3, use_bias=False, kernel_initializer='he_normal', padding='same')(x)
+  # x = BatchNormalization(axis=3)(x)
+  # x = Activation('sigmoid', name='Classification')(x)
   return x
 
 

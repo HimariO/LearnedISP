@@ -398,6 +398,37 @@ if __name__ == '__main__':
     print(min(val_sample), max(val_sample))
     import pdb; pdb.set_trace()
     print(union)
+  
+  def test_memory_leak():
+    import os, psutil
+    process = psutil.Process(os.getpid())
+
+    print(f"Start: {process.memory_info().rss / 2**20: .2f}")  # in bytes 
+
+    train_set = MaiIspTFRecordDataset(
+        tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp.*.tfrecord'
+      ).create_dataset(
+          batch_size=64,
+          num_readers=4,
+          num_parallel_calls=8
+      ).repeat().prefetch(tf.data.AUTOTUNE)
+
+    val_set = MaiIspTFRecordDataset(
+        tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp_val.*.tfrecord'
+      ).create_dataset(
+          batch_size=64,
+          num_readers=4,
+          num_parallel_calls=8
+      ).prefetch(tf.data.AUTOTUNE)
+
+    print(f"Dataset created: {process.memory_info().rss / 2**20: .2f}")  # in bytes 
+    
+    for j in range(10):
+      for i, (x, y) in enumerate(train_set):
+        if i % 100 == 0:
+          print(f"Dataset Epoch[{j}] Iter[{i}]: {process.memory_info().rss / 2**20: .2f}")  # in bytes 
+        if i > 20000:
+          break
 
   with logger.catch():
     # mai_isp = MaiIspTFRecordDataset(
@@ -409,7 +440,8 @@ if __name__ == '__main__':
     #       print(k, v.shape, v.dtype)
     #   break
 
-    check_split()
+    # check_split()
+    test_memory_leak()
     
 
   

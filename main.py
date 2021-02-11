@@ -63,7 +63,7 @@ def simple_train(model_dir, load_weight=None):
   # policy = tf.keras.mixed_precision.Policy('mixed_float16')
   # tf.keras.mixed_precision.set_global_policy(policy)
 
-  unet = UNet('train', alpha=1.5)
+  unet = UNetRes('train', alpha=0.25)
   psnr = metrics.PSNR()
   cache_model_out = metrics.CacheOutput()
   ms_ssim = losses.HypbirdSSIM(
@@ -130,11 +130,10 @@ def simple_train(model_dir, load_weight=None):
     epochs=20,
     validation_data=val_set,
     use_multiprocessing=False,
-    workers=1,
     callbacks=[
-      tensorbaord,
-      checkpoint,
-      write_image,
+      # tensorbaord,
+      # checkpoint,
+      # write_image,
     ]
   )
 
@@ -277,6 +276,7 @@ if __name__ == '__main__':
 
   with logger.catch():
     soft_gpu_meme_growth()
+    os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
 
     fire.Fire({
       'simple_train': simple_train,

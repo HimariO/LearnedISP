@@ -11,12 +11,14 @@ class SaveValImage(tf.keras.callbacks.Callback):
               log_dir,
               train_summary_freq=200,
               test_summary_freq=2,
-              sample_per_batch=4):
+              sample_per_batch=4,
+              log_key='enhanced_rgb_cache_output'):
     super().__init__()
     self.writer = tf.summary.create_file_writer(log_dir)
     self.train_summary_freq = train_summary_freq
     self.test_summary_freq = test_summary_freq
     self.sample_per_batch = sample_per_batch
+    self.log_key = log_key
 
     self.train_steps_cnt = 0
     self.test_steps_cnt = 0
@@ -35,8 +37,8 @@ class SaveValImage(tf.keras.callbacks.Callback):
     
     if self.test_steps_cnt % self.test_summary_freq == 0:
       # import pdb; pdb.set_trace()
-      assert 'cache_output' in logs
-      last_eval = logs['cache_output']
+      assert self.log_key in logs
+      last_eval = logs[self.log_key]
 
       with self.writer.as_default():
         pred_img = self.fp_img_to_uint8(last_eval[0])

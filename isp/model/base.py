@@ -33,7 +33,7 @@ _TAG_TO_PREDICTION_MODEL = {}
 def register_model(prediction_model):
   # assert issubclass(prediction_model, RawBase)
   tag = prediction_model.__name__
-  assert tag not in _TAG_TO_PREDICTION_MODEL
+  # assert tag not in _TAG_TO_PREDICTION_MODEL
   _TAG_TO_PREDICTION_MODEL[tag] = prediction_model
   return prediction_model
 

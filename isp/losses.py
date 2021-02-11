@@ -101,3 +101,8 @@ class HypbirdSSIM(tf.keras.losses.Loss):
     l1 = tf.reduce_mean(tf.abs(y_true - y_pred))
     struct_loss = (ms_ssim * 0.8 + l1 * 0.2)
     return mse + struct_loss
+
+
+@register_prediction_loss
+class MSE(tf.keras.losses.MeanSquaredError):
+  pass
