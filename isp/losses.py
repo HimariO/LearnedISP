@@ -106,3 +106,22 @@ class HypbirdSSIM(tf.keras.losses.Loss):
 @register_prediction_loss
 class MSE(tf.keras.losses.MeanSquaredError):
   pass
+
+
+@register_prediction_loss
+class SobelMap(tf.keras.losses.Loss):
+  
+  def call(self, y_true, y_pred):
+    y_pred = tf.clip_by_value(y_pred, 0, 1)
+    y_true = tf.clip_by_value(y_true, 0, 1)
+
+    true_edge = tf.image.sobel_edges(y_true)  # (B,H,W,2)
+    pred_edge = tf.image.sobel_edges(y_pred)
+    
+    threshold = tf.reduce_mean(tf.reduce_mean(true_edge, axis=1), axis=1) # (B, 2)
+    threshold = (threshold * 0.5)[:, None, None, :]
+    threshold_mask = tf.cast(true_edge > threshold, tf.float32)
+
+    mse = tf.pow(true_edge - pred_edge, 2) * threshold_mask
+    mse = tf.reduce_mean(mse)
+    return mse

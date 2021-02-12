@@ -267,15 +267,19 @@ class Experiment:
       self.sanity_check(self.model, self.val_dataset)
       self.model.load_weights(load_weight)
     
-    self.model.fit(
-      self.train_dataset,
-      steps_per_epoch=2000,
-      epochs=epoch,
-      validation_data=self.val_dataset,
-      use_multiprocessing=False,
-      workers=1,
-      callbacks=self.callbacks,
-    )
+    callback_list = self.callbacks
+    
+    for e in range(0, epoch, 10):
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=2000,
+        epochs=e + 10,
+        initial_epoch=e,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callback_list,
+      )
 
 
 class TwoStageExperiment(Experiment):
@@ -319,7 +323,7 @@ class TwoStageExperiment(Experiment):
       loss=losses_dict,
       metrics=metrics_dict,
       loss_weights={
-        io.model_prediction.ENHANCE_RGB: 0,
+        io.model_prediction.ENHANCE_RGB: 1e-4,
         io.model_prediction.INTER_MID_GRAY: 1,
       }
     )

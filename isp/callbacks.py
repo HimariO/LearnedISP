@@ -11,8 +11,8 @@ class SaveValImage(tf.keras.callbacks.Callback):
               log_dir,
               train_summary_freq=200,
               test_summary_freq=2,
-              sample_per_batch=4,
-              log_key='enhanced_rgb_cache_output'):
+              sample_per_batch=8,
+              log_key='cache_output'):
     super().__init__()
     self.writer = tf.summary.create_file_writer(log_dir)
     self.train_summary_freq = train_summary_freq
@@ -47,12 +47,14 @@ class SaveValImage(tf.keras.callbacks.Callback):
         tf.summary.image(
           'predict_images',
           pred_img[:self.sample_per_batch],
-          step=global_step
+          step=global_step,
+          max_outputs=8,
         )
         tf.summary.image(
           'groundtruth_images',
           true_img[:self.sample_per_batch],
           step=global_step,
+          max_outputs=8,
         )
 
 

@@ -16,6 +16,7 @@ from isp import metrics
 from isp import losses
 from isp.data import dataset
 from isp.model.unet import UNet, UNetResX2R, UNetRes
+from isp.model import unet
 from isp.model import layers
 from isp import experiment
 
@@ -27,6 +28,20 @@ def remove_weight_norm(model: tf.keras.Model):
       elif hasattr(layer, 'layers'):
         remove_weight_norm(layer)
 
+def soft_gpu_meme_growth():
+  gpus = tf.config.experimental.list_physical_devices('GPU')
+  if gpus:
+    try:
+      # Currently, memory growth needs to be the same across GPUs
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+      logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+      print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+      # Memory growth must be set before GPUs have been initialized
+      print(e)
+
+soft_gpu_meme_growth()
 
 # %%
 
@@ -151,4 +166,36 @@ process = psutil.Process(os.getpid())
 print(process.memory_info().rss // 2**20)  # in bytes 
 
 
+# %%
+
+A = tf.fill([1, 4, 4, 1], 0)
+B = tf.fill([1, 4, 4, 1], 64)
+C = tf.fill([1, 4, 4, 1], 128)
+D = tf.fill([1, 4, 4, 1], 255)
+
+A = tf.cast(A, tf.uint8)
+B = tf.cast(B, tf.uint8)
+C = tf.cast(C, tf.uint8)
+D = tf.cast(D, tf.uint8)
+
+# bayer = tf.stack([A, B, C, D], axis=-1)
+# %%
+
+Pa = tf.pad(B, [(0, 0), (0, 0), (0, 0), (0, 3)], constant_values=0)
+Ta = tf.nn.depth_to_space(Pa, 2)
+plt.imshow(Ta[0])
+plt.show()
+
+Taaa = tf.nn.depth_to_space(tf.concat([Pa, Pa, Pa], -1), 2)
+plt.imshow(Taaa[0])
+plt.show()
+# %%
+
+Pb = tf.pad(B, [(0, 0), (0, 0), (0, 0), (1, 2)], constant_values=0)
+Tb = tf.nn.depth_to_space(Pb, 2)
+plt.imshow(Tb[0])
+# %%
+
+bay_unet = unet.functinoal_unet_bay()
+bay_unet.summary()
 # %%
