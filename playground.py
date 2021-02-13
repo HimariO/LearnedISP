@@ -199,3 +199,6 @@ plt.imshow(Tb[0])
 bay_unet = unet.functinoal_unet_bay()
 bay_unet.summary()
 # %%
+
+tf.image.rgb_to_hsv(tf.cast(Pb[..., :3], tf.float32))
+# %%

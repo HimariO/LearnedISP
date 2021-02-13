@@ -51,3 +51,20 @@ class WeightNormalization(tfa.layers.WeightNormalization):
         with tf.control_dependencies([update_kernel]):
           outputs = self.layer(inputs)
           return outputs
+
+
+class Polynomial(tf.keras.layers.Layer):
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args,  **kwargs)
+  
+  def call(self, x, parameter, *args, **kwargs):
+    """
+    x: Batched images [B, H, W, 3] fp32
+    parameter: [B, 4] fp32
+    """
+    y = x * parameter[:, 0]
+    y += x**2 * parameter[:, 1]
+    y += x**3 * parameter[:, 2]
+    y += x**4 * parameter[:, 3]
+    return y

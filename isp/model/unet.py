@@ -394,10 +394,10 @@ class UNetRes2Stage(base.RawBase, UNetBilinearBlocks):
     self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
     self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
     
-    self.up_x4_x2_rec = self.upsample_layer(C(64))
+    self.up_x4_x2_rec = self.upsample_layer(C(32))
     # self.block_ux2_rec = self.res_conv_block(C(64), WN=weight_norm)
-    self.up_x2_x1_rec = self.upsample_layer(C(32))
-    self.last_conv_rec = self.res_conv_block(C(32), WN=weight_norm)
+    self.up_x2_x1_rec = self.upsample_layer(8)
+    self.last_conv_rec = self.res_conv_block(8, WN=weight_norm)
     self.transform_rec = tf.keras.layers.Conv2D(4, 1, activation=None)
 
     self._first_kernel = None
@@ -408,7 +408,7 @@ class UNetRes2Stage(base.RawBase, UNetBilinearBlocks):
     # import pdb; pdb.set_trace()
     return {
       model_prediction.ENHANCE_RGB: rgb,
-      model_prediction.INTER_MID_GRAY: gray,
+      model_prediction.INTER_MID_PRED: gray,
     }
 
   def _call(self, x, training=None, mask=None):
@@ -450,16 +450,18 @@ def functinoal_unet_res_2_stage(alpha=0.5, input_shape=[128, 128, 4]):
   x_layer = tf.keras.Input(shape=input_shape)
   y1, y2 = unet._call(x_layer)
   y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
-  y2 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.INTER_MID_GRAY)(y2)
+  y2 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.INTER_MID_PRED)(y2)
   
   input_dict = {
     dataset_element.MAI_RAW_PATCH: x_layer
   }
   output_dict = {
     model_prediction.ENHANCE_RGB: y1,
-    model_prediction.INTER_MID_GRAY: y2,
+    model_prediction.INTER_MID_PRED: y2,
   }
-  return tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model
 
 
 @base.register_model
@@ -562,3 +564,140 @@ def functinoal_unet_bay(alpha=0.5, input_shape=[128, 128, 4]):
   model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
   model.summary()
   return model
+
+
+@base.register_model
+class UNetCURL(base.RawBase, UNetBilinearBlocks):
+  """
+  R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
+  """
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, weight_norm=True, **kwargs):
+    super().__init__(mode, *args, **kwargs)
+
+    regularizer = tf.keras.regularizers.l2(weight_decay_scale)
+
+    def C(channel): return max(int(channel * alpha), 16)
+    self.block_x1 = self.conv_block(C(32), WN=weight_norm)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), WN=weight_norm)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), WN=weight_norm)
+    self.up_x16_x8 = self.upsample_layer(C(256))
+    self.block_ux8 = self.res_conv_block(C(256), WN=weight_norm)
+    self.up_x8_x4 = self.upsample_layer(C(128))
+    self.block_ux4 = self.res_conv_block(C(128), WN=weight_norm)
+    self.up_x4_x2 = self.upsample_layer(C(64))
+    self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
+    self.up_x2_x1 = self.upsample_layer(C(32))
+    self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
+    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
+
+    self.curl_x1 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
+    self.curl_x2 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='NHWC')
+    self.curl_poly_fc = tf.keras.layers.Dense(4 * 3)
+
+    self._first_kernel = None
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: rgb
+    }
+
+  def _call(self, x, training=None, mask=None):
+    top = x
+    x = x1 = self.block_x1(x)
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = tf.concat([x, x8], axis=-1)
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = tf.concat([x, x4], axis=-1)
+    x = self.block_ux4(x)
+    x = self.up_x4_x2(x)
+    x = up_x2 = tf.concat([x, x2], axis=-1)
+    x = self.block_ux2(x)
+    x = up_x1 = self.up_x2_x1(x)
+    x = tf.concat([x, x1], axis=-1)
+    x = self.last_conv(x)
+    x = self.transform(x)
+    
+    x = tf.nn.depth_to_space(x, 2)
+    return x
+
+
+@base.register_model
+class UNetHSV(base.RawBase, UNetBilinearBlocks):
+  """
+  R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
+  """
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, weight_norm=True, **kwargs):
+    super().__init__(mode, *args, **kwargs)
+
+    regularizer = tf.keras.regularizers.l2(weight_decay_scale)
+
+    def C(channel): return max(int(channel * alpha), 16)
+    self.block_x1 = self.conv_block(C(32), WN=weight_norm)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), WN=weight_norm)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), WN=weight_norm)
+    self.up_x16_x8 = self.upsample_layer(C(256))
+    self.block_ux8 = self.res_conv_block(C(256), WN=weight_norm)
+    self.up_x8_x4 = self.upsample_layer(C(128))
+    self.block_ux4 = self.res_conv_block(C(128), WN=weight_norm)
+    self.up_x4_x2 = self.upsample_layer(C(64))
+    self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
+    self.up_x2_x1 = self.upsample_layer(C(32))
+    self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
+    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    self.to_hsv = tf.keras.layers.Lambda(lambda x: tf.image.rgb_to_hsv(x))
+    # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
+
+    self._first_kernel = None
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb, hsv = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: rgb,
+      model_prediction.INTER_MID_PRED: hsv,
+    }
+
+  def _call(self, x, training=None, mask=None):
+    top = x
+    x = x1 = self.block_x1(x)
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = tf.concat([x, x8], axis=-1)
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = tf.concat([x, x4], axis=-1)
+    x = self.block_ux4(x)
+    x = self.up_x4_x2(x)
+    x = tf.concat([x, x2], axis=-1)
+    x = self.block_ux2(x)
+    x = self.up_x2_x1(x)
+    x = tf.concat([x, x1], axis=-1)
+    x = self.last_conv(x)
+    x = self.transform(x)
+    
+    rgb = tf.nn.depth_to_space(x, 2)
+    hsv = self.to_hsv(rgb)
+    return rgb, hsv
+    # return x

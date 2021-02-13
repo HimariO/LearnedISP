@@ -109,6 +109,20 @@ class MSE(tf.keras.losses.MeanSquaredError):
 
 
 @register_prediction_loss
+class ChannelMSE(tf.keras.losses.Loss):
+
+  def __init__(self, target_channel=0):
+    super().__init__(reduction=tf.keras.losses.Reduction.AUTO, name='c_mse')
+    self.target_channel = target_channel
+
+  def call(self, y_true, y_pred):
+    # y_pred = tf.clip_by_value(y_pred, 0, 1)
+    # y_true = tf.clip_by_value(y_true, 0, 1)
+    c_delta = y_pred[..., self.target_channel] - y_true[..., self.target_channel]
+    mse = tf.pow(c_delta, 2)
+    return mse
+
+@register_prediction_loss
 class SobelMap(tf.keras.losses.Loss):
   
   def call(self, y_true, y_pred):
@@ -119,7 +133,7 @@ class SobelMap(tf.keras.losses.Loss):
     pred_edge = tf.image.sobel_edges(y_pred)
     
     threshold = tf.reduce_mean(tf.reduce_mean(true_edge, axis=1), axis=1) # (B, 2)
-    threshold = (threshold * 0.5)[:, None, None, :]
+    threshold = (threshold * 0.2)[:, None, None, :]
     threshold_mask = tf.cast(true_edge > threshold, tf.float32)
 
     mse = tf.pow(true_edge - pred_edge, 2) * threshold_mask

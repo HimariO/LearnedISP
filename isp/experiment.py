@@ -141,12 +141,12 @@ class ExperimentBuilder:
 
   def get_losses(self) -> Dict[str, losses.PredictionLossBase]:
     cfg = self.config.losses
-    loss_map = {}
+    loss_map = defaultdict(list)
     for loss_cfg in cfg:
       loss_class = losses.get_prediction_loss(loss_cfg['type'])
       loss_func = loss_class(*loss_cfg['args'], **loss_cfg['kwargs'])
-      loss_map[loss_cfg['target_output']] = loss_func
-    return loss_map
+      loss_map[loss_cfg['target_output']].append(loss_func)
+    return dict(loss_map)
   
   def get_metrics(self) -> Dict[str, metrics.PredictionMetricBase]:
     cfg = self.config.metrics
@@ -294,7 +294,10 @@ class TwoStageExperiment(Experiment):
 
     if load_weight is not None:
       self.sanity_check(self.model, self.val_dataset)
-      self.model.load_weights(load_weight)
+      try:
+        self.model.load_weights(load_weight)
+      except:
+        self.model = tf.keras.models.load_model(load_weight)
 
     os.makedirs(model_dir, exist_ok=True)
     log_dir = os.path.join(model_dir, 'logs')
@@ -318,13 +321,17 @@ class TwoStageExperiment(Experiment):
     adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
     callbacks_list = self.callbacks
 
+    """
+    Stage 1: Foucs on detail reconstruction, ignore color for now
+    """
+
     self.model.compile(
       optimizer=adam,
       loss=losses_dict,
       metrics=metrics_dict,
       loss_weights={
-        io.model_prediction.ENHANCE_RGB: 1e-4,
-        io.model_prediction.INTER_MID_GRAY: 1,
+        io.model_prediction.ENHANCE_RGB: 0.7,
+        io.model_prediction.INTER_MID_PRED: 0.3,
       }
     )
     
@@ -338,23 +345,28 @@ class TwoStageExperiment(Experiment):
       callbacks=callbacks_list,
     )
 
+    """
+    Stage 2: Restore RGB image with standar loss func
+    """
+
     self.model.compile(
       optimizer=adam,
       loss=losses_dict,
       metrics=metrics_dict,
       loss_weights={
-        io.model_prediction.ENHANCE_RGB: 0.8,
-        io.model_prediction.INTER_MID_GRAY: 0.2,
+        io.model_prediction.ENHANCE_RGB: 0.5,
+        io.model_prediction.INTER_MID_PRED: 0.5,
       }
     )
     
-    self.model.fit(
-      self.train_dataset,
-      steps_per_epoch=2000,
-      initial_epoch=stage1_epoch,
-      epochs=epoch,
-      validation_data=self.val_dataset,
-      use_multiprocessing=False,
-      workers=1,
-      callbacks=callbacks_list,
-    )
+    for e in range(stage1_epoch, epoch, 10):
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=2000,
+        epochs=e + 10,
+        initial_epoch=e,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callbacks_list,
+      )
