@@ -120,3 +120,27 @@ class InsertHSV(DataPreprocessingBase):
       label_dict[io.dataset_element.MAI_DSLR_GRAY_PATCH] = tf.image.rgb_to_hsv(img)
     
     return input_dict, label_dict
+
+
+@register_preprocessing_callable
+class InsertMedPred(DataPreprocessingBase):
+  """
+
+  """
+
+  def __init__(self):
+    super().__init__()
+
+  def __call__(self, input_and_label):
+    logger.debug("InsertHSV")
+    input_dict, label_dict = input_and_label
+    
+    if io.model_prediction.ENHANCE_RGB in label_dict:
+      img = label_dict[io.model_prediction.ENHANCE_RGB]
+      label_dict[io.model_prediction.INTER_MID_PRED] = img
+    
+    if io.dataset_element.MAI_DSLR_PATCH in label_dict:
+      img = label_dict[io.dataset_element.MAI_DSLR_PATCH]
+      label_dict[io.dataset_element.MAI_DSLR_GRAY_PATCH] = img
+    
+    return input_dict, label_dict

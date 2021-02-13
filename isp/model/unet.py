@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.keras import layers
 from tensorflow.python.keras.engine.input_layer import Input
 
 from . import base
@@ -39,7 +40,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
     layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def reverse_downsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -48,7 +49,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
     layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def res_downsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -56,7 +57,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
     layers = layers[:1] + [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[1:]]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def reverse_res_downsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -64,7 +65,7 @@ class UNetBlocks:
       ResConvBlock(2, channel, weight_norm=WN),
     ]
     layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + layers[-1:]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def conv_block(self, channel, name=None, WN=True):
     layers = [
@@ -72,7 +73,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
     layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def res_conv_block(self, channel, name=None, WN=True):
     return ResConvBlock(2, channel, weight_norm=WN)
@@ -85,7 +86,7 @@ class UNetBlocks:
         channel // 2, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
     layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + [layers[-1]]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
     layer = tf.keras.layers.Conv2DTranspose(
@@ -98,7 +99,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=0, name=None):
     layers = [
@@ -107,7 +108,7 @@ class UNetBlocks:
     ]
     layers += [tf.keras.layers.Conv2D(12, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
 
 
 class UNetBilinearBlocks(UNetBlocks):
@@ -124,14 +125,14 @@ class UNetBilinearBlocks(UNetBlocks):
       WeightNormalization(l, data_init=True, inference=not WN)
       for l in layers[:-1]
     ] + [layers[-1]]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
     layers = [
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    return PySequential(layers)
+    return tf.keras.Sequential(layers)
   
   def res_upsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -139,7 +140,7 @@ class UNetBilinearBlocks(UNetBlocks):
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       tf.keras.layers.Conv2D(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=1, name=None):
     layers = [
@@ -147,7 +148,7 @@ class UNetBilinearBlocks(UNetBlocks):
     ]
     layers += [tf.keras.layers.Conv2D(8, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
-    return PySequential(layers=layers, name=name)
+    return tf.keras.Sequential(layers=layers, name=name)
 
 
 @base.register_model
@@ -306,8 +307,8 @@ class UNetRes(base.RawBase, UNetBilinearBlocks):
     self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
     self.up_x2_x1 = self.upsample_layer(C(32))
     self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
-    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
-    self.transform = self.rgb_upsample_block(num_rgb_layer=3)
+    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
 
     self._first_kernel = None
   
@@ -340,8 +341,8 @@ class UNetRes(base.RawBase, UNetBilinearBlocks):
     x = self.last_conv(x)
     x = self.transform(x)
     
-    # return tf.nn.depth_to_space(x, 2)
-    return x
+    return tf.nn.depth_to_space(x, 2)
+    # return x
 
   def swap_input_filter_order(self, flat_raw_pattern):
     assert type(flat_raw_pattern) is list
@@ -597,17 +598,21 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
 
     self.curl_x1 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
     self.curl_x2 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
-    self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='NHWC')
+    self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_last')
     self.curl_poly_fc = tf.keras.layers.Dense(4 * 3)
+    self.curl_poly_r = Polynomial()
+    self.curl_poly_g = Polynomial()
+    self.curl_poly_b = Polynomial()
 
     self._first_kernel = None
   
   def call(self, inputs, training=None, mask=None):
     raw = inputs[dataset_element.MAI_RAW_PATCH]
-    rgb = self._call(raw)
+    rgb, adj_rgb = self._call(raw)
     # import pdb; pdb.set_trace()
     return {
-      model_prediction.ENHANCE_RGB: rgb
+      model_prediction.ENHANCE_RGB: adj_rgb,
+      model_prediction.INTER_MID_PRED: rgb,
     }
 
   def _call(self, x, training=None, mask=None):
@@ -631,8 +636,20 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     x = self.last_conv(x)
     x = self.transform(x)
     
-    x = tf.nn.depth_to_space(x, 2)
-    return x
+    rgb = tf.nn.depth_to_space(x, 2)
+    r, g, b = tf.split(rgb, 3, axis=-1)
+    
+    x_curl = self.curl_x1(up_x1)
+    x_curl = self.curl_x2(x_curl)
+    x_curl = self.curl_gap(x_curl)
+    x_curl = self.curl_poly_fc(x_curl)
+    
+    r = self.curl_poly_r(tf.stop_gradient(r), x_curl[:,:4])
+    g = self.curl_poly_g(tf.stop_gradient(g), x_curl[:, 4:8])
+    b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 8:])
+    # import pdb; pdb.set_trace()
+    adj_rgb = tf.concat([r, g, b], axis=-1)
+    return rgb, adj_rgb
 
 
 @base.register_model

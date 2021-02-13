@@ -268,7 +268,7 @@ def eval_tf_model(model_path):
 
 def run_experiment(config_path, load_weight=None):
   config = experiment.ExperimentConfig(config_path)
-  exp = experiment.TwoStageExperiment(config)
+  exp = experiment.Experiment(config)
   exp.train(load_weight=load_weight)
 
 

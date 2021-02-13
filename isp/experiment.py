@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import tensorflow as tf
 from loguru import logger
+from tensorflow.python.keras.backend import log
 from isp import metrics, losses, callbacks
 from isp import model
 from isp.model import base, io
@@ -256,6 +257,10 @@ class Experiment:
     ]
 
   def train(self, epoch=None, load_weight=None):
+    import os, psutil
+    from loguru import logger
+    process = psutil.Process(os.getpid())
+
     epoch = self.config.general['epoch'] if epoch is None else epoch
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
@@ -264,27 +269,31 @@ class Experiment:
     self.val_dataset = self.builder.get_val_dataset()
 
     if load_weight is not None:
+      logger.info(f'load_weight: {load_weight}')
       self.sanity_check(self.model, self.val_dataset)
       self.model.load_weights(load_weight)
     
     callback_list = self.callbacks
     
-    for e in range(0, epoch, 10):
+    e_per_loop = 10
+    for e in range(0, epoch, e_per_loop):
       self.model.fit(
         self.train_dataset,
-        steps_per_epoch=2000,
-        epochs=e + 10,
+        steps_per_epoch=1000,
+        epochs=e + e_per_loop,
         initial_epoch=e,
         validation_data=self.val_dataset,
         use_multiprocessing=False,
         workers=1,
         callbacks=callback_list,
       )
+      tf.keras.backend.clear_session()
+      logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")
 
 
 class TwoStageExperiment(Experiment):
 
-  def train(self, stage1_epoch=5, epoch=None, load_weight=None):
+  def train(self, stage1_epoch=1, epoch=None, load_weight=None):
     epoch = self.config.general['epoch'] if epoch is None else epoch
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
@@ -330,8 +339,8 @@ class TwoStageExperiment(Experiment):
       loss=losses_dict,
       metrics=metrics_dict,
       loss_weights={
-        io.model_prediction.ENHANCE_RGB: 0.7,
-        io.model_prediction.INTER_MID_PRED: 0.3,
+        io.model_prediction.ENHANCE_RGB: 0.1,
+        io.model_prediction.INTER_MID_PRED: 0.9,
       }
     )
     

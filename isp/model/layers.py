@@ -60,11 +60,39 @@ class Polynomial(tf.keras.layers.Layer):
   
   def call(self, x, parameter, *args, **kwargs):
     """
-    x: Batched images [B, H, W, 3] fp32
+    x: Batched single images [B, H, W, 1] fp32
     parameter: [B, 4] fp32
     """
-    y = x * parameter[:, 0]
-    y += x**2 * parameter[:, 1]
-    y += x**3 * parameter[:, 2]
-    y += x**4 * parameter[:, 3]
+    y = x * parameter[:, None, None, 0:1]
+    y += x**2 * parameter[:, None, None, 1:2]
+    y += x**3 * parameter[:, None, None, 2:3]
+    y += x**4 * parameter[:, None, None, 3:4]
+    return y
+
+
+class PLCurve(tf.keras.layers.Layer):
+
+  def __init__(self, *args, num_knot=16, **kwargs):
+    super().__init__(*args,  **kwargs)
+    self.num_knot = num_knot
+  
+  def call(self, x, parameter, *args, **kwargs):
+    """
+    x: Batched single images [B, H, W, 1] fp32
+    parameter: [B, num_knot] fp32
+    """
+    param = tf.nn.relu(parameter)
+    slope = param[:, 1:] - param[:, :-1]
+
+    step = 1 / self.num_knot
+    scales = []
+    for i in range(self.num_knot):
+      remain = tf.clip_by_value((x * self.num_knot) - i, 0, 1)
+      if i > 0:
+        scales.append(remain * slope[i - 1])
+      else:
+        scales.append(remain)
+    
+    y = tf.stack(scales, axis=-1)
+    y = tf.reduce_sum(y, axis=-1)
     return y
