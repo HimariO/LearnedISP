@@ -58,7 +58,7 @@ class Polynomial(tf.keras.layers.Layer):
   def __init__(self, *args, **kwargs):
     super().__init__(*args,  **kwargs)
   
-  def call(self, x, parameter, *args, **kwargs):
+  def call(self, x, parameter):
     """
     x: Batched single images [B, H, W, 1] fp32
     parameter: [B, 4] fp32
@@ -76,7 +76,7 @@ class PLCurve(tf.keras.layers.Layer):
     super().__init__(*args,  **kwargs)
     self.num_knot = num_knot
   
-  def call(self, x, parameter, *args, **kwargs):
+  def call(self, x, parameter):
     """
     x: Batched single images [B, H, W, 1] fp32
     parameter: [B, num_knot] fp32
@@ -84,15 +84,16 @@ class PLCurve(tf.keras.layers.Layer):
     param = tf.nn.relu(parameter)
     slope = param[:, 1:] - param[:, :-1]
 
-    step = 1 / self.num_knot
     scales = []
     for i in range(self.num_knot):
       remain = tf.clip_by_value((x * self.num_knot) - i, 0, 1)
       if i > 0:
-        scales.append(remain * slope[i - 1])
+        scales.append(remain * slope[:, i - 1][:, None, None, None])
       else:
         scales.append(remain)
     
-    y = tf.stack(scales, axis=-1)
-    y = tf.reduce_sum(y, axis=-1)
+    scale_per_pixel = tf.stack(scales, axis=-1)
+    import pdb; pdb.set_trace()
+    scale_per_pixel = tf.reduce_sum(scale_per_pixel, axis=-1)
+    y = tf.clip_by_value(x * scale_per_pixel, 0, 1)
     return y

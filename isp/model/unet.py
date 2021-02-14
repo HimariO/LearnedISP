@@ -599,10 +599,10 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     self.curl_x1 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
     self.curl_x2 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
     self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_last')
-    self.curl_poly_fc = tf.keras.layers.Dense(4 * 3)
-    self.curl_poly_r = Polynomial()
-    self.curl_poly_g = Polynomial()
-    self.curl_poly_b = Polynomial()
+    self.curl_poly_fc = tf.keras.layers.Dense(16 * 3)
+    self.curl_poly_r = PLCurve()
+    self.curl_poly_g = PLCurve()
+    self.curl_poly_b = PLCurve()
 
     self._first_kernel = None
   
@@ -644,9 +644,9 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     x_curl = self.curl_gap(x_curl)
     x_curl = self.curl_poly_fc(x_curl)
     
-    r = self.curl_poly_r(tf.stop_gradient(r), x_curl[:,:4])
-    g = self.curl_poly_g(tf.stop_gradient(g), x_curl[:, 4:8])
-    b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 8:])
+    r = self.curl_poly_r(tf.stop_gradient(r), x_curl[:,:16])
+    g = self.curl_poly_g(tf.stop_gradient(g), x_curl[:, 16:32])
+    b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 32:])
     # import pdb; pdb.set_trace()
     adj_rgb = tf.concat([r, g, b], axis=-1)
     return rgb, adj_rgb

@@ -1,7 +1,7 @@
 {
       "general": {
         "learning_rate": 0.0001,
-        "model_dir": "checkpoints/unet_05_curl",
+        "model_dir": "checkpoints/unet_05_curl_plu",
         "log_dir": "",
         "epoch": 50,
         "scheduler": "cycle",
@@ -23,7 +23,7 @@
       },
       "losses": [
         {
-          "type": "MSE",
+          "type": "ChannelMaxMSE",
           "args": [],
           "kwargs": {},
           "target_output": "enhanced_rgb"

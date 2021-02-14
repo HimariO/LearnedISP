@@ -126,6 +126,19 @@ class ChannelMSE(tf.keras.losses.Loss):
     mse = tf.pow(c_delta, 2)
     return mse
 
+
+@register_prediction_loss
+class ChannelMaxMSE(tf.keras.losses.Loss):
+
+  def call(self, y_true, y_pred):
+    # y_pred = tf.clip_by_value(y_pred, 0, 1)
+    # y_true = tf.clip_by_value(y_true, 0, 1)
+    c_delta = y_pred - y_true
+    mse = tf.pow(c_delta, 2)
+    max_mse = tf.reduce_max(mse, axis=-1)
+    return max_mse
+
+
 @register_prediction_loss
 class SobelMap(tf.keras.losses.Loss):
   

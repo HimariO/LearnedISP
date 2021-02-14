@@ -272,6 +272,12 @@ def run_experiment(config_path, load_weight=None):
   exp.train(load_weight=load_weight)
 
 
+def run_two_stage_experiment(config_path, load_weight=None, skip_stage_1=False):
+  config = experiment.ExperimentConfig(config_path)
+  exp = experiment.TwoStageExperiment(config)
+  exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1)
+
+
 if __name__ == '__main__':
 
   with logger.catch():
@@ -284,6 +290,7 @@ if __name__ == '__main__':
       'eval_tflite_model': eval_tflite_model,
       'eval_tf_model': eval_tf_model,
       'run_experiment': run_experiment,
+      'run_two_stage_experiment': run_two_stage_experiment,
     })
     # simple_train('./checkpoints/unet_res_bil_hyp_large')
 

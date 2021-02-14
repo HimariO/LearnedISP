@@ -293,7 +293,7 @@ class Experiment:
 
 class TwoStageExperiment(Experiment):
 
-  def train(self, stage1_epoch=1, epoch=None, load_weight=None):
+  def train(self, stage1_epoch=5, skip_stage_1=False, epoch=None, load_weight=None):
     epoch = self.config.general['epoch'] if epoch is None else epoch
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
@@ -333,26 +333,26 @@ class TwoStageExperiment(Experiment):
     """
     Stage 1: Foucs on detail reconstruction, ignore color for now
     """
-
-    self.model.compile(
-      optimizer=adam,
-      loss=losses_dict,
-      metrics=metrics_dict,
-      loss_weights={
-        io.model_prediction.ENHANCE_RGB: 0.1,
-        io.model_prediction.INTER_MID_PRED: 0.9,
-      }
-    )
-    
-    self.model.fit(
-      self.train_dataset,
-      steps_per_epoch=2000,
-      epochs=stage1_epoch,
-      validation_data=self.val_dataset,
-      use_multiprocessing=False,
-      workers=1,
-      callbacks=callbacks_list,
-    )
+    if not skip_stage_1:
+      self.model.compile(
+        optimizer=adam,
+        loss=losses_dict,
+        metrics=metrics_dict,
+        loss_weights={
+          io.model_prediction.ENHANCE_RGB: 0.1,
+          io.model_prediction.INTER_MID_PRED: 0.9,
+        }
+      )
+      
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=2000,
+        epochs=stage1_epoch,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callbacks_list,
+      )
 
     """
     Stage 2: Restore RGB image with standar loss func

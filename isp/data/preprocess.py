@@ -132,7 +132,7 @@ class InsertMedPred(DataPreprocessingBase):
     super().__init__()
 
   def __call__(self, input_and_label):
-    logger.debug("InsertHSV")
+    logger.debug("InsertMedPred")
     input_dict, label_dict = input_and_label
     
     if io.model_prediction.ENHANCE_RGB in label_dict:
