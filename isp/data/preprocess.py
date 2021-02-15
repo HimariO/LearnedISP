@@ -88,7 +88,7 @@ class InsertGrayscale(DataPreprocessingBase):
     
     if io.model_prediction.ENHANCE_RGB in label_dict:
       img = label_dict[io.model_prediction.ENHANCE_RGB]
-      label_dict[io.model_prediction.INTER_MID_PRED] = tf.reduce_mean(img, axis=-1, keepdims=True)
+      label_dict[io.model_prediction.INTER_MID_GRAY] = tf.reduce_mean(img, axis=-1, keepdims=True)
     
     if io.dataset_element.MAI_DSLR_PATCH in label_dict:
       img = label_dict[io.dataset_element.MAI_DSLR_PATCH]

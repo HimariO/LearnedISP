@@ -93,7 +93,6 @@ class PLCurve(tf.keras.layers.Layer):
         scales.append(remain)
     
     scale_per_pixel = tf.stack(scales, axis=-1)
-    import pdb; pdb.set_trace()
     scale_per_pixel = tf.reduce_sum(scale_per_pixel, axis=-1)
     y = tf.clip_by_value(x * scale_per_pixel, 0, 1)
     return y

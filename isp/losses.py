@@ -156,3 +156,23 @@ class SobelMap(tf.keras.losses.Loss):
     mse = tf.pow(true_edge - pred_edge, 2) * threshold_mask
     mse = tf.reduce_mean(mse)
     return mse
+
+
+@register_prediction_loss
+class HypCirdSSIM(tf.keras.losses.Loss):
+
+  def call(self, y_true, y_pred):
+    # import pdb; pdb.set_trace()
+    c_delta = y_pred - y_true
+    mse = tf.pow(c_delta, 2)
+    max_mse = tf.reduce_mean(tf.reduce_max(mse, axis=-1))
+    
+    ms_ssim = 1 - tf.image.ssim_multiscale(y_true, y_pred, 1.0)
+    l1 = tf.reduce_mean(tf.abs(y_true - y_pred))
+    struct_loss = (ms_ssim * 0.8 + l1 * 0.2)
+    
+    final_loss = tf.cond(
+      max_mse < 4.0,
+      true_fn=lambda: max_mse + struct_loss,
+      false_fn=lambda: max_mse)
+    return final_loss

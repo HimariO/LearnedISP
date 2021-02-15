@@ -409,7 +409,7 @@ class UNetRes2Stage(base.RawBase, UNetBilinearBlocks):
     # import pdb; pdb.set_trace()
     return {
       model_prediction.ENHANCE_RGB: rgb,
-      model_prediction.INTER_MID_PRED: gray,
+      model_prediction.INTER_MID_GRAY: gray,
     }
 
   def _call(self, x, training=None, mask=None):

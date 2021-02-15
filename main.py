@@ -281,7 +281,7 @@ def run_two_stage_experiment(config_path, load_weight=None, skip_stage_1=False):
 if __name__ == '__main__':
 
   with logger.catch():
-    soft_gpu_meme_growth()
+    # soft_gpu_meme_growth()
     os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
 
     fire.Fire({

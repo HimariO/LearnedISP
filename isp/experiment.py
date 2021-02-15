@@ -280,7 +280,7 @@ class Experiment:
       self.model.fit(
         self.train_dataset,
         steps_per_epoch=1000,
-        epochs=e + e_per_loop,
+        epochs=min(epoch, e + e_per_loop),
         initial_epoch=e,
         validation_data=self.val_dataset,
         use_multiprocessing=False,

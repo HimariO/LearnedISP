@@ -133,3 +133,5 @@ checkpoints
 ckpt
 *.h5
 *.tflite
+fil-result
+*.dat

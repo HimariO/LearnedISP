@@ -14,5 +14,6 @@ class dataset_element:
 
 
 class model_prediction:
-  INTER_MID_PRED = 'intermidate_grayscale'
+  INTER_MID_PRED = 'intermidate_predict'
+  INTER_MID_GRAY = 'intermidate_grayscale'
   ENHANCE_RGB = 'enhanced_rgb'
