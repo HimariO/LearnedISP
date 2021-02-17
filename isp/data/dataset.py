@@ -290,7 +290,7 @@ class SIDTFRecordDataset(TFRecordDataset):
 @register_dataset
 class MaiIspTFRecordDataset(TFRecordDataset):
 
-  BIT_DEPTH = 255.0 * 4  # NOTE: raw image actually value from 144 ~ 4092
+  BIT_DEPTH = 255.0 * 4 *4  # NOTE: raw image actually value from 144 ~ 4092
 
   def __init__(self, 
       tf_record_path_pattern=None,

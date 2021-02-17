@@ -1,14 +1,14 @@
 {
       "general": {
         "learning_rate": 0.0001,
-        "model_dir": "checkpoints/unet_05_curl_plu",
+        "model_dir": "checkpoints/unet_05_3stage",
         "log_dir": "",
         "epoch": 50,
         "scheduler": "cycle",
         "batch_size": 64
       },
       "model": {
-        "type": "UNetCURL",
+        "type": "UNetRes3Stage",
         "init_param": {
           "args": ["train"],
           "kwargs": {
@@ -23,7 +23,7 @@
       },
       "losses": [
         {
-          "type": "HypbirdSSIM",
+          "type": "ChannelMaxMSE",
           "args": [],
           "kwargs": {},
           "target_output": "enhanced_rgb"
@@ -33,6 +33,12 @@
           "args": [],
           "kwargs": {},
           "target_output": "intermidate_predict"
+        },
+        {
+          "type": "SobelMap",
+          "args": [],
+          "kwargs": {},
+          "target_output": "intermidate_grayscale"
         }
       ],
       "metrics": [
@@ -43,16 +49,16 @@
           "target_output": "enhanced_rgb"
         },
         {
-          "type": "PSNR",
-          "args": [],
-          "kwargs": {},
-          "target_output": "intermidate_predict"
-        },
-        {
           "type": "CacheOutput",
           "args": [],
           "kwargs": {},
           "target_output": "enhanced_rgb"
+        },
+        {
+          "type": "PSNR",
+          "args": [],
+          "kwargs": {},
+          "target_output": "intermidate_predict"
         }
       ],
       "train_datasets": [
@@ -90,6 +96,11 @@
         },
         {
           "type": "InsertMedPred",
+          "args": [],
+          "kwargs": {}
+        },
+        {
+          "type": "InsertGrayscale",
           "args": [],
           "kwargs": {}
         }

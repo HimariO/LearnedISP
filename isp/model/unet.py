@@ -608,11 +608,12 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
   
   def call(self, inputs, training=None, mask=None):
     raw = inputs[dataset_element.MAI_RAW_PATCH]
-    rgb, adj_rgb = self._call(raw)
+    rgb, adj_rgb, rgb_curl = self._call(raw)
     # import pdb; pdb.set_trace()
     return {
       model_prediction.ENHANCE_RGB: adj_rgb,
       model_prediction.INTER_MID_PRED: rgb,
+      # model_prediction.RGB_CURL: rgb_curl,
     }
 
   def _call(self, x, training=None, mask=None):
@@ -649,7 +650,7 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 32:])
     # import pdb; pdb.set_trace()
     adj_rgb = tf.concat([r, g, b], axis=-1)
-    return rgb, adj_rgb
+    return rgb, adj_rgb, x_curl
 
 
 @base.register_model
@@ -718,3 +719,104 @@ class UNetHSV(base.RawBase, UNetBilinearBlocks):
     hsv = self.to_hsv(rgb)
     return rgb, hsv
     # return x
+
+
+@base.register_model
+class UNetRes3Stage(base.RawBase, UNetBilinearBlocks):
+  """
+  Graysclae --> RGB --> Color curve adjusted RGB
+  """
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, weight_norm=True, **kwargs):
+    super().__init__(mode, *args, **kwargs)
+
+    regularizer = tf.keras.regularizers.l2(weight_decay_scale)
+
+    def C(channel): return max(int(channel * alpha), 16)
+    self.block_x1 = self.conv_block(C(32), WN=weight_norm)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), WN=weight_norm)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), WN=weight_norm)
+    self.up_x16_x8 = self.upsample_layer(C(256))
+    self.block_ux8 = self.res_conv_block(C(256), WN=weight_norm)
+    self.up_x8_x4 = self.upsample_layer(C(128))
+    self.block_ux4 = self.res_conv_block(C(128), WN=weight_norm)
+
+    self.up_x4_x2 = self.upsample_layer(C(64))
+    self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
+    self.up_x2_x1 = self.upsample_layer(C(32))
+    self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
+    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    
+    self.up_x4_x2_rec = self.upsample_layer(C(32))
+    # self.block_ux2_rec = self.res_conv_block(C(64), WN=weight_norm)
+    self.up_x2_x1_rec = self.upsample_layer(8)
+    self.last_conv_rec = self.res_conv_block(8, WN=weight_norm)
+    self.transform_rec = tf.keras.layers.Conv2D(4, 1, activation=None)
+
+    self.curl_x1 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
+    self.curl_x2 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_last')
+    self.curl_poly_fc = tf.keras.layers.Dense(16 * 3)
+    self.curl_poly_r = PLCurve()
+    self.curl_poly_g = PLCurve()
+    self.curl_poly_b = PLCurve()
+
+    self._first_kernel = None
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    adj_rgb, rgb, gray = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: adj_rgb,
+      model_prediction.INTER_MID_PRED: rgb,
+      model_prediction.INTER_MID_GRAY: gray,
+    }
+
+  def _call(self, x, training=None, mask=None):
+    top = x
+    x = x1 = self.block_x1(x)
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = tf.concat([x, x8], axis=-1)
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = tf.concat([x, x4], axis=-1)
+    x = ux4 = self.block_ux4(x)
+
+    x = rec_x2 = self.up_x4_x2_rec(ux4)
+    x = tf.concat([x, x2], axis=-1)
+    # x = self.block_ux2_rec(x)
+    x = rec_x1 = self.up_x2_x1_rec(x)
+    x = tf.concat([x, x1], axis=-1)
+    x = self.last_conv_rec(x)
+    x_gray = tf.nn.depth_to_space(self.transform_rec(x), 2)
+    
+    x = self.up_x4_x2(ux4)
+    x = tf.concat([x, x2, rec_x2], axis=-1)
+    x = self.block_ux2(x)
+    x = up_x1 = self.up_x2_x1(x)
+    x = tf.concat([x, x1, rec_x1], axis=-1)
+    x = self.last_conv(x)
+    x_rgb = tf.nn.depth_to_space(self.transform(x), 2)
+
+    r, g, b = tf.split(x_rgb, 3, axis=-1)
+    
+    x_curl = self.curl_x1(up_x1)
+    x_curl = self.curl_x2(x_curl)
+    x_curl = self.curl_gap(x_curl)
+    x_curl = self.curl_poly_fc(x_curl)
+    
+    r = self.curl_poly_r(tf.stop_gradient(r), x_curl[:,:16])
+    g = self.curl_poly_g(tf.stop_gradient(g), x_curl[:, 16:32])
+    b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 32:])
+    # import pdb; pdb.set_trace()
+    adj_rgb = tf.concat([r, g, b], axis=-1)
+
+    return adj_rgb, x_rgb, x_gray

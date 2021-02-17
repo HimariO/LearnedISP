@@ -81,16 +81,17 @@ class PLCurve(tf.keras.layers.Layer):
     x: Batched single images [B, H, W, 1] fp32
     parameter: [B, num_knot] fp32
     """
-    param = tf.nn.relu(parameter)
+    param = tf.nn.leaky_relu(parameter)
     slope = param[:, 1:] - param[:, :-1]
 
     scales = []
+    curve_steps = self.num_knot - 1
     for i in range(self.num_knot):
-      remain = tf.clip_by_value((x * self.num_knot) - i, 0, 1)
+      remain = tf.clip_by_value((x * curve_steps) - i, 0, 1)
       if i > 0:
         scales.append(remain * slope[:, i - 1][:, None, None, None])
       else:
-        scales.append(remain)
+        scales.append(param[:, 0][:, None, None, None] * tf.ones_like(x))
     
     scale_per_pixel = tf.stack(scales, axis=-1)
     scale_per_pixel = tf.reduce_sum(scale_per_pixel, axis=-1)

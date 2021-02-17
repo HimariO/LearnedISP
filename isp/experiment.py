@@ -239,6 +239,7 @@ class Experiment:
     log_dir = os.path.join(model_dir, 'logs')
     tensorbaord = tf.keras.callbacks.TensorBoard(
       log_dir=log_dir,
+      histogram_freq=0,
       write_images=True,
       write_graph=True)
     
@@ -250,10 +251,13 @@ class Experiment:
       monitor='val_loss',
       save_best_only=False,
     )
+
+    stop_nan = tf.keras.callbacks.TerminateOnNaN()
     return [
       tensorbaord,
       write_image,
       checkpoint,
+      stop_nan
     ]
 
   def train(self, epoch=None, load_weight=None):
@@ -308,23 +312,6 @@ class TwoStageExperiment(Experiment):
       except:
         self.model = tf.keras.models.load_model(load_weight)
 
-    os.makedirs(model_dir, exist_ok=True)
-    log_dir = os.path.join(model_dir, 'logs')
-    tensorbaord = tf.keras.callbacks.TensorBoard(
-      log_dir=log_dir,
-      write_images=True,
-      write_graph=True)
-    
-    write_image = callbacks.SaveValImage(log_dir)
-    
-    ckpt_path = os.path.join(model_dir, 'checkpoint')
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(
-      ckpt_path,
-      monitor='val_loss',
-      save_best_only=False,
-    )
-
-    
     metrics_dict = self.builder.get_metrics()
     losses_dict = self.builder.get_losses()
     adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
@@ -373,6 +360,115 @@ class TwoStageExperiment(Experiment):
         self.train_dataset,
         steps_per_epoch=2000,
         epochs=e + 10,
+        initial_epoch=e,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callbacks_list,
+      )
+
+class ThreeStageExperiment(Experiment):
+
+  def train(self,
+            stage1_epoch=5,
+            skip_stage_1=False,
+            stage2_epoch=5,
+            skip_stage_2=False,
+            epoch=None,
+            load_weight=None):
+    epoch = self.config.general['epoch'] if epoch is None else epoch
+    model_dir = self.config.general['model_dir']
+    load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
+    
+    self.train_dataset = self.builder.get_train_dataset()
+    self.val_dataset = self.builder.get_val_dataset()
+
+    self.sanity_check(self.model, self.val_dataset)
+    if load_weight is not None:
+      try:
+        self.model.load_weights(load_weight)
+      except:
+        self.model = tf.keras.models.load_model(load_weight)
+    
+    metrics_dict = self.builder.get_metrics()
+    losses_dict = self.builder.get_losses()
+    adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
+    callbacks_list = self.callbacks
+
+    """
+    Stage 1: Foucs on detail reconstruction, ignore color for now
+    """
+    if not skip_stage_1:
+      self.model.compile(
+        optimizer=adam,
+        loss=losses_dict,
+        metrics=metrics_dict,
+        loss_weights={
+          io.model_prediction.ENHANCE_RGB: 1e-6,
+          io.model_prediction.INTER_MID_PRED: 1e-4,
+          io.model_prediction.INTER_MID_GRAY: 1,
+        }
+      )
+      
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=2000,
+        epochs=stage1_epoch,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callbacks_list,
+      )
+
+    """
+    Stage 2: Restore RGB image with standar loss func
+    """
+
+    stage2_end = stage1_epoch + stage2_epoch
+    if not skip_stage_2:
+      self.model.compile(
+        optimizer=adam,
+        loss=losses_dict,
+        metrics=metrics_dict,
+        loss_weights={
+          io.model_prediction.ENHANCE_RGB: 1e-6,
+          io.model_prediction.INTER_MID_PRED: 0.8,
+          io.model_prediction.INTER_MID_GRAY: 0.2,
+        }
+      )
+      
+      for e in range(stage1_epoch, stage2_end, 10):
+        self.model.fit(
+          self.train_dataset,
+          steps_per_epoch=2000,
+          epochs=min(stage2_end, e + 10),
+          initial_epoch=e,
+          validation_data=self.val_dataset,
+          use_multiprocessing=False,
+          workers=1,
+          callbacks=callbacks_list,
+        )
+    
+    """
+    Stage 3: Restore RGB image with standar loss func
+    """
+
+    self.model.compile(
+      optimizer=adam,
+      loss=losses_dict,
+      metrics=metrics_dict,
+      loss_weights={
+        io.model_prediction.ENHANCE_RGB: 0.4,
+        io.model_prediction.INTER_MID_PRED: 0.4,
+        io.model_prediction.INTER_MID_GRAY: 0.2,
+      }
+    )
+    
+    for e in range(stage2_end, epoch, 10):
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=2000,
+        epochs=min(epoch, e + 10),
         initial_epoch=e,
         validation_data=self.val_dataset,
         use_multiprocessing=False,

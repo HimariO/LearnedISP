@@ -226,6 +226,8 @@ for x, y in val_set:
   plt.imshow(dslr)
   plt.show()
   
+  x[io.dataset_element.MAI_RAW_PATCH] *= 4
+
   p = net(x)
   pred_img = tf.clip_by_value(p[io.model_prediction.INTER_MID_PRED][0], 0, 1)
   plt.imshow(pred_img)

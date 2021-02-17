@@ -278,10 +278,16 @@ def run_two_stage_experiment(config_path, load_weight=None, skip_stage_1=False):
   exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1)
 
 
+def run_3_stage_experiment(config_path, load_weight=None, skip_stage_1=False, skip_stage_2=False):
+  config = experiment.ExperimentConfig(config_path)
+  exp = experiment.ThreeStageExperiment(config)
+  exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1, skip_stage_2=skip_stage_2)
+
+
 if __name__ == '__main__':
 
   with logger.catch():
-    # soft_gpu_meme_growth()
+    soft_gpu_meme_growth()
     os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
 
     fire.Fire({
@@ -291,6 +297,7 @@ if __name__ == '__main__':
       'eval_tf_model': eval_tf_model,
       'run_experiment': run_experiment,
       'run_two_stage_experiment': run_two_stage_experiment,
+      'run_3_stage_experiment': run_3_stage_experiment,
     })
     # simple_train('./checkpoints/unet_res_bil_hyp_large')
 
