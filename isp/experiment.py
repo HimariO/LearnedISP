@@ -475,3 +475,36 @@ class ThreeStageExperiment(Experiment):
         workers=1,
         callbacks=callbacks_list,
       )
+
+
+class DebugExperiment:
+  
+  def train(self, epoch=None, load_weight=None):
+    import os, psutil
+    from loguru import logger
+    process = psutil.Process(os.getpid())
+
+    epoch = self.config.general['epoch'] if epoch is None else epoch
+    model_dir = self.config.general['model_dir']
+    load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
+    
+    self.train_dataset = self.builder.get_train_dataset()
+    self.val_dataset = self.builder.get_val_dataset()
+
+    if load_weight is not None:
+      logger.info(f'load_weight: {load_weight}')
+      self.sanity_check(self.model, self.val_dataset)
+      self.model.load_weights(load_weight)
+    
+    callback_list = self.callbacks
+    
+    e_per_loop = 10
+    for e in range(0, epoch, 1):
+      for i, (x, y) in zip(range(2000), self.train_dataset):
+        if i % 50 == 0:
+          logger.debug(f"{i}/2000")
+        x = {k: v.numpy() for k, v in x.items()}
+        y = {k: v.numpy() for k, v in y.items()}
+        self.model.train_on_batch(x, y=y, reset_metrics=True)
+      self.model.evaluate(self.val_dataset)
+      logger.debug(f"epoch[{e}] mem: {process.memory_info().rss / 2**20: .2f}")
