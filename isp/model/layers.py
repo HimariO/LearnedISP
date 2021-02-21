@@ -1,4 +1,6 @@
+import numpy as np
 import tensorflow as tf
+from tensorflow.python.framework.tensor_util import constant_value
 import tensorflow_addons as tfa
 
 
@@ -146,6 +148,73 @@ class ResConvBlock(tf.keras.Model):
     return x
 
 
+class RepConv(tf.keras.Model):
+
+  def __init__(self,
+              output_channel,
+              filter_size,
+              padding='same',
+              strides=(1, 1),
+              activation=tf.nn.relu, 
+              inference=False,
+              norm_type='bn',
+              **kwargs):
+    super().__init__()
+    self.channel = output_channel
+    self.filter_size = filter_size
+    self.padding = padding
+    self.strides = strides
+    self.activation = activation
+    self.inference = inference
+    self.norm_type = norm_type
+    self._build()
+  
+  def _build(self):
+    self.conv3 = tf.keras.layers.Conv2D(
+      self.channel, 3, strides=self.strides, padding=self.padding, use_bias=False)
+    self.conv1 = tf.keras.layers.Conv2D(
+      self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    if self.norm_type == 'bn':
+      self.bn3 = tf.keras.layers.BatchNormalization()
+      self.bn1 = tf.keras.layers.BatchNormalization()
+      self.bn_id = tf.keras.layers.BatchNormalization()
+    elif self.norm_type == 'wn':
+      self.conv3 = WeightNormalization(self.conv3)
+      self.conv1 = WeightNormalization(self.conv1)
+      
+      self.bn3 = lambda x: x
+      self.bn1 = lambda x: x
+      self.bn_id = lambda x: x
+    else:
+      raise ValueError(f"Unknow normalization type: {self.norm_type}")
+
+    self.rep_conv3 = tf.keras.layers.Conv2D(
+      self.channel, 3, strides=self.strides, padding=self.padding)
+  
+  def reparameterization(self):
+    if self.norm_type == 'bn':
+      assert len(self.conv1.get_weights()) == 1
+      assert len(self.conv3.get_weights()) == 1
+      w1 = self.conv1.get_weights()[0]
+      w1_3 = np.pad(w1, [(1, 1), (1, 1), (0, 0), (0, 0)], constant_value=0.0)
+      w3 = self.conv3.get_weights()[0]
+    else:
+      raise ValueError(f"Unknow normalization type: {self.norm_type}")
+
+  def call(self, inputs):
+    if self.inference:
+      return self.rep_conv3(inputs)
+    else:
+      x3 = self.bn3(self.conv3(inputs))
+      x1 = self.bn1(self.conv1(inputs))
+      if int(inputs.shape[-1]) == self.channel:
+        identity = self.bn_id(inputs)
+        x = self.activation(x1 + x3 + identity)
+      else:
+        x = self.activation(x1 + x3)
+      return x
+
+
 class UNetBlocks:
 
   def downsample_block(self, channel, name=None, WN=True):
@@ -263,4 +332,119 @@ class UNetBilinearBlocks(UNetBlocks):
     ]
     layers += [tf.keras.layers.Conv2D(8, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
+    return tf.keras.Sequential(layers=layers, name=name)
+
+
+class RepVGGBlocks:
+
+  def downsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def reverse_downsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def res_downsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def reverse_res_downsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def conv_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def res_conv_block(self, channel, name=None, norm_type='wn'):
+    return self.conv_block(channel, name=name, norm_type=norm_type)
+  
+  def upsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      tf.keras.layers.Conv2DTranspose(
+        channel // 2, 3, padding='same', strides=(2, 2), activation=None),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+
+  def upsample_layer(self, channel, name=None):
+    layer = tf.keras.layers.Conv2DTranspose(
+      channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu)
+    return layer
+  
+  def res_upsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      tf.keras.layers.Conv2DTranspose(
+        channel // 2, 3, padding='same', strides=(2, 2), activation=None),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def rgb_upsample_block(self, num_rgb_layer=0, name=None, norm_type='wn'):
+    layers = [
+      tf.keras.layers.Conv2DTranspose(
+          12, 3, padding='same', strides=(2, 2), activation=None),
+    ]
+    layers += [
+      RepConv(12, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type)
+      for _ in range(num_rgb_layer)
+    ]
+    layers += [RepConv(3, 1, padding='same', strides=(1, 1), activation=tf.nn.relu)]
+    return tf.keras.Sequential(layers=layers, name=name)
+
+
+class RepBilinearVGGBlocks(RepVGGBlocks):
+
+  def upsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+      tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
+      RepConv(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+
+  def upsample_layer(self, channel, name=None, norm_type='wn'):
+    layers = [
+      tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
+      RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers)
+  
+  def res_upsample_block(self, channel, name=None, norm_type='wn'):
+    layers = [
+      RepConv(channel, 3, padding='same', strides=(1, 1), norm_type=norm_type),
+      RepConv(channel, 3, padding='same', strides=(1, 1), norm_type=norm_type),
+      tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
+      RepConv(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
+    ]
+    return tf.keras.Sequential(layers=layers, name=name)
+  
+  def rgb_upsample_block(self, num_rgb_layer=1, name=None, norm_type='wn'):
+    layers = [
+        tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
+    ]
+    layers += [RepConv(8, 3, padding='same', activation=tf.nn.relu, norm_type=norm_type) for _ in range(num_rgb_layer)]
+    layers += [RepConv(3, 1, norm_type=norm_type)]
     return tf.keras.Sequential(layers=layers, name=name)

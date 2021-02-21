@@ -680,32 +680,32 @@ class UNetRes3Stage(base.RawBase, UNetBilinearBlocks):
 
 
 @base.register_model
-class UNetGrid(base.RawBase, UNetBilinearBlocks):
+class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
   """
   R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
   """
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004,
-               alpha=1.0, num_rgb_layer=0, weight_norm=True, **kwargs):
+               alpha=1.0, num_rgb_layer=0, norm_type='wn', **kwargs):
     super().__init__(mode, *args, **kwargs)
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
 
     def C(channel): return max(int(channel * alpha), 16)
     self.coord = ConcatCoordinate()
-    self.block_x1 = self.conv_block(C(32), WN=weight_norm)
-    self.block_x2 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
-    self.block_x4 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
-    self.block_x8 = self.reverse_res_downsample_block(C(256), WN=weight_norm)
-    self.block_x16 = self.reverse_res_downsample_block(C(512), WN=weight_norm)
-    self.up_x16_x8 = self.upsample_layer(C(256))
-    self.block_ux8 = self.res_conv_block(C(256), WN=weight_norm)
-    self.up_x8_x4 = self.upsample_layer(C(128))
-    self.block_ux4 = self.res_conv_block(C(128), WN=weight_norm)
-    self.up_x4_x2 = self.upsample_layer(C(64))
-    self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
-    self.up_x2_x1 = self.upsample_layer(C(32))
-    self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
+    self.block_x1 = self.conv_block(C(32), norm_type=norm_type)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), norm_type=norm_type)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), norm_type=norm_type)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), norm_type=norm_type)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), norm_type=norm_type)
+    self.up_x16_x8 = self.upsample_layer(C(256), norm_type=norm_type)
+    self.block_ux8 = self.res_conv_block(C(256), norm_type=norm_type)
+    self.up_x8_x4 = self.upsample_layer(C(128), norm_type=norm_type)
+    self.block_ux4 = self.res_conv_block(C(128), norm_type=norm_type)
+    self.up_x4_x2 = self.upsample_layer(C(64), norm_type=norm_type)
+    self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type)
+    self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
+    self.last_conv = self.res_conv_block(C(32), norm_type=norm_type)
     self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
     # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
 

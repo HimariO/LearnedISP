@@ -1,0 +1,419 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="874" onload="init(evt)" viewBox="0 0 1200 874" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:"Verdana"; font-size:12px; fill:rgb(0,0,0); }
+#title { text-anchor:middle; font-size:17px; }
+#search { opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[var nametype = 'Function:';
+var fontsize = 12;
+var fontwidth = 0.59;
+var xpad = 10;
+var inverted = true;
+var searchcolor = 'rgb(230,0,230)';
+var fluiddrawing = true;
+var truncate_text_right = false;]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+          svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            var el = frames.children;
+            for(var i = 0; i < el.length; i++) {
+                update_text(el[i]);
+            }
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad - 100;
+            matchedtxt.attributes.x.value = svgWidth - xpad - 100;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+            var params = get_params()
+            params.x = el.attributes._orig_x.value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["_orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("_orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["_orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+    e.removeAttribute("_orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (/^ *\$/.test(txt) || t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.attributes != undefined) {
+        orig_load(e, "x");
+        orig_load(e, "width");
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, ratio) {
+    if (e.attributes != undefined) {
+        if (e.attributes.x != undefined) {
+            orig_save(e, "x");
+            e.attributes.x.value = format_percent((parseFloat(e.attributes.x.value) - x) * ratio);
+            if (e.tagName == "text") {
+                e.attributes.x.value = format_percent(parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value) + (100 * 3 / frames.attributes.width.value));
+            }
+        }
+        if (e.attributes.width != undefined) {
+            orig_save(e, "width");
+            e.attributes.width.value = format_percent(parseFloat(e.attributes.width.value) * ratio);
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, ratio);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            orig_save(e, "x");
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            orig_save(e, "width");
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseFloat(attr.width.value);
+    var xmin = parseFloat(attr.x.value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    var ratio = 100 / width;
+    // XXX: Workaround for JavaScript float issues (fix me)
+    var fudge = 0.001;
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseFloat(a.x.value);
+        var ew = parseFloat(a.width.value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                update_text(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex + fudge >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, ratio);
+                update_text(e);
+            }
+        }
+    }
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+        update_text(el[i]);
+    }
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseFloat(rect.attributes.width.value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseFloat(rect.attributes.x.value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    var fudge = 0.0001;    // JavaScript floating point
+    for (var k in keys) {
+        var x = parseFloat(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw - fudge) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="874" fill="url(#background)"/><text id="title" x="50.0000%" y="24.00">py-spy</text><text id="details" x="10" y="40.00"> </text><text id="unzoom" class="hide" x="10" y="24.00">Reset Zoom</text><text id="search" x="1090" y="24.00">Search</text><text id="matched" x="1090" y="863.00"> </text><svg id="frames" x="10" width="1180"><g><title>TFE_Py_ExecuteCancelable (tensorflow/python/_pywrap_tensorflow_internal.so) (1,893 samples, 1.06%)</title><rect x="0.7583%" y="324" width="1.0594%" height="15" fill="rgb(227,0,7)"/><text x="1.0083%" y="334.50"></text></g><g><title>_call_flat (tensorflow/python/eager/function.py:1918) (1,961 samples, 1.10%)</title><rect x="0.7298%" y="228" width="1.0975%" height="15" fill="rgb(217,0,24)"/><text x="0.9798%" y="238.50"></text></g><g><title>call (tensorflow/python/eager/function.py:560) (1,931 samples, 1.08%)</title><rect x="0.7466%" y="244" width="1.0807%" height="15" fill="rgb(221,193,54)"/><text x="0.9966%" y="254.50"></text></g><g><title>quick_execute (tensorflow/python/eager/execute.py:60) (1,919 samples, 1.07%)</title><rect x="0.7533%" y="260" width="1.0740%" height="15" fill="rgb(248,212,6)"/><text x="1.0033%" y="270.50"></text></g><g><title>pybind11::cpp_function::dispatcher (tensorflow/python/_pywrap_tfe.so) (1,919 samples, 1.07%)</title><rect x="0.7533%" y="276" width="1.0740%" height="15" fill="rgb(208,68,35)"/><text x="1.0033%" y="286.50"></text></g><g><title>pybind11::cpp_function::initialize&lt;pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::handle const&amp;, char const*, char const*, pybind11::handle const&amp;, pybind11::handle const&amp;, pybind11::handle const&amp;)#41}, pybind11::object, pybind11::handle const&amp;, char const*, char const*, pybind11::handle const&amp;, pybind11::handle const&amp;, pybind11::handle const&amp;, pybind11::name, pybind11::scope, pybind11::sibling&gt;(pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::handle const&amp;, char const*, char const*, pybind11::handle const&amp;, pybind11::handle const&amp;, pybind11::handle const&amp;)#41}, pybind11::object (*)(pybind11::handle const&amp;, char const*, char const*, pybind11::handle const&amp;, pybind11::handle const&amp;, pybind11::handle const&amp;), pybind11::name const, pybind11::scope&amp;, pybind11::sibling)::{lambda(pybind11::detail::function_call&amp;)#3}::_FUN (tensorflow/python/_pywrap_tfe.so) (1,918 samples, 1.07%)</title><rect x="0.7538%" y="292" width="1.0734%" height="15" fill="rgb(232,128,0)"/><text x="1.0038%" y="302.50"></text></g><g><title>tensorflow::TFE_Py_ExecuteCancelable_wrapper (tensorflow/python/_pywrap_tfe.so) (1,911 samples, 1.07%)</title><rect x="0.7578%" y="308" width="1.0695%" height="15" fill="rgb(207,160,47)"/><text x="1.0078%" y="318.50"></text></g><g><title>_call (tensorflow/python/eager/def_function.py:855) (2,295 samples, 1.28%)</title><rect x="0.5535%" y="196" width="1.2844%" height="15" fill="rgb(228,23,34)"/><text x="0.8035%" y="206.50"></text></g><g><title>__call__ (tensorflow/python/eager/function.py:2943) (2,015 samples, 1.13%)</title><rect x="0.7102%" y="212" width="1.1277%" height="15" fill="rgb(218,30,26)"/><text x="0.9602%" y="222.50"></text></g><g><title>fit (tensorflow/python/keras/engine/training.py:1111) (3,096 samples, 1.73%)</title><rect x="0.5473%" y="164" width="1.7327%" height="15" fill="rgb(220,122,19)"/><text x="0.7973%" y="174.50"></text></g><g><title>__call__ (tensorflow/python/eager/def_function.py:828) (3,087 samples, 1.73%)</title><rect x="0.5524%" y="180" width="1.7276%" height="15" fill="rgb(250,228,42)"/><text x="0.8024%" y="190.50"></text></g><g><title>0x7f89e391e304 (libcuda.so.460.39) (4,218 samples, 2.36%)</title><rect x="9.7530%" y="644" width="2.3606%" height="15" fill="rgb(240,193,28)"/><text x="10.0030%" y="654.50">0x..</text></g><g><title>0x7f89e391e32c (libcuda.so.460.39) (3,419 samples, 1.91%)</title><rect x="13.0028%" y="644" width="1.9134%" height="15" fill="rgb(216,20,37)"/><text x="13.2528%" y="654.50">0..</text></g><g><title>0x7f89e379fdff (libcuda.so.460.39) (19,173 samples, 10.73%)</title><rect x="5.4308%" y="628" width="10.7301%" height="15" fill="rgb(206,188,39)"/><text x="5.6808%" y="638.50">0x7f89e379fdff (..</text></g><g><title>0x7f89e391e304 (libcuda.so.460.39) (3,452 samples, 1.93%)</title><rect x="19.2004%" y="644" width="1.9319%" height="15" fill="rgb(217,207,13)"/><text x="19.4504%" y="654.50">0..</text></g><g><title>0x7f89e379fe93 (libcuda.so.460.39) (12,075 samples, 6.76%)</title><rect x="16.4430%" y="628" width="6.7577%" height="15" fill="rgb(231,73,38)"/><text x="16.6930%" y="638.50">0x7f89e37..</text></g><g><title>0x7f89e379ff93 (libcuda.so.460.39) (6,975 samples, 3.90%)</title><rect x="23.4867%" y="628" width="3.9035%" height="15" fill="rgb(225,20,46)"/><text x="23.7367%" y="638.50">0x7f..</text></g><g><title>0x7f89e3785445 (libcuda.so.460.39) (40,655 samples, 22.75%)</title><rect x="4.6400%" y="612" width="22.7525%" height="15" fill="rgb(210,31,41)"/><text x="4.8900%" y="622.50">0x7f89e3785445 (libcuda.so.460.39)</text></g><g><title>0x7f89e39f7ad6 (libcuda.so.460.39) (41,399 samples, 23.17%)</title><rect x="4.4402%" y="596" width="23.1688%" height="15" fill="rgb(221,200,47)"/><text x="4.6902%" y="606.50">0x7f89e39f7ad6 (libcuda.so.460.39)</text></g><g><title>0x7f89e39f85c1 (libcuda.so.460.39) (41,604 samples, 23.28%)</title><rect x="4.3871%" y="580" width="23.2836%" height="15" fill="rgb(226,26,5)"/><text x="4.6371%" y="590.50">0x7f89e39f85c1 (libcuda.so.460.39)</text></g><g><title>0x7f89e38091a7 (libcuda.so.460.39) (43,328 samples, 24.25%)</title><rect x="3.5146%" y="564" width="24.2484%" height="15" fill="rgb(249,33,26)"/><text x="3.7646%" y="574.50">0x7f89e38091a7 (libcuda.so.460.39)</text></g><g><title>0x7ffc6c8af758 ([vdso]) (5,055 samples, 2.83%)</title><rect x="28.3573%" y="628" width="2.8290%" height="15" fill="rgb(235,183,28)"/><text x="28.6073%" y="638.50">0x..</text></g><g><title>0x7f89e3888a0f (libcuda.so.460.39) (5,846 samples, 3.27%)</title><rect x="28.0042%" y="580" width="3.2717%" height="15" fill="rgb(221,5,38)"/><text x="28.2542%" y="590.50">0x7..</text></g><g><title>clock_gettime (libc-2.32.so) (5,823 samples, 3.26%)</title><rect x="28.0171%" y="596" width="3.2588%" height="15" fill="rgb(247,18,42)"/><text x="28.2671%" y="606.50">clo..</text></g><g><title>clock_gettime (libc-2.32.so) (5,231 samples, 2.93%)</title><rect x="28.3484%" y="612" width="2.9275%" height="15" fill="rgb(241,131,45)"/><text x="28.5984%" y="622.50">cl..</text></g><g><title>0x7f89e38092e5 (libcuda.so.460.39) (8,088 samples, 4.53%)</title><rect x="27.9437%" y="564" width="4.5264%" height="15" fill="rgb(249,31,29)"/><text x="28.1937%" y="574.50">0x7f8..</text></g><g><title>0x7f89e37ebb05 (libcuda.so.460.39) (52,567 samples, 29.42%)</title><rect x="3.0685%" y="548" width="29.4190%" height="15" fill="rgb(225,111,53)"/><text x="3.3185%" y="558.50">0x7f89e37ebb05 (libcuda.so.460.39)</text></g><g><title>0x7f89e39e0dab (libcuda.so.460.39) (52,590 samples, 29.43%)</title><rect x="3.0596%" y="532" width="29.4318%" height="15" fill="rgb(238,160,17)"/><text x="3.3096%" y="542.50">0x7f89e39e0dab (libcuda.so.460.39)</text></g><g><title>cuStreamSynchronize (libcuda.so.460.39) (52,599 samples, 29.44%)</title><rect x="3.0551%" y="516" width="29.4369%" height="15" fill="rgb(214,148,48)"/><text x="3.3051%" y="526.50">cuStreamSynchronize (libcuda.so.460.39)</text></g><g><title>tensorflow::BaseGPUDevice::Sync (tensorflow/libtensorflow_framework.so.2) (52,628 samples, 29.45%)</title><rect x="3.0462%" y="452" width="29.4531%" height="15" fill="rgb(232,36,49)"/><text x="3.2962%" y="462.50">tensorflow::BaseGPUDevice::Sync (tensorflow/lib..</text></g><g><title>stream_executor::StreamExecutor::BlockHostUntilDone (tensorflow/python/_pywrap_tensorflow_internal.so) (52,624 samples, 29.45%)</title><rect x="3.0484%" y="468" width="29.4509%" height="15" fill="rgb(209,103,24)"/><text x="3.2984%" y="478.50">stream_executor::StreamExecutor::BlockHostUntil..</text></g><g><title>stream_executor::gpu::GpuExecutor::BlockHostUntilDone (tensorflow/python/_pywrap_tensorflow_internal.so) (52,623 samples, 29.45%)</title><rect x="3.0490%" y="484" width="29.4503%" height="15" fill="rgb(229,88,8)"/><text x="3.2990%" y="494.50">stream_executor::gpu::GpuExecutor::BlockHostUnt..</text></g><g><title>stream_executor::gpu::GpuDriver::SynchronizeStream (tensorflow/python/_pywrap_tensorflow_internal.so) (52,615 samples, 29.45%)</title><rect x="3.0534%" y="500" width="29.4458%" height="15" fill="rgb(213,181,19)"/><text x="3.3034%" y="510.50">stream_executor::gpu::GpuDriver::SynchronizeStr..</text></g><g><title>0x7f89e379fdff (libcuda.so.460.39) (3,716 samples, 2.08%)</title><rect x="32.9604%" y="740" width="2.0796%" height="15" fill="rgb(254,191,54)"/><text x="33.2104%" y="750.50">0..</text></g><g><title>0x7f89e379fe93 (libcuda.so.460.39) (2,038 samples, 1.14%)</title><rect x="35.0988%" y="740" width="1.1406%" height="15" fill="rgb(241,83,37)"/><text x="35.3488%" y="750.50"></text></g><g><title>0x7f89e3785445 (libcuda.so.460.39) (7,664 samples, 4.29%)</title><rect x="32.8166%" y="724" width="4.2891%" height="15" fill="rgb(233,36,39)"/><text x="33.0666%" y="734.50">0x7f8..</text></g><g><title>0x7f89e39f7ad6 (libcuda.so.460.39) (7,773 samples, 4.35%)</title><rect x="32.7690%" y="708" width="4.3501%" height="15" fill="rgb(226,3,54)"/><text x="33.0190%" y="718.50">0x7f8..</text></g><g><title>0x7f89e39f85c1 (libcuda.so.460.39) (7,806 samples, 4.37%)</title><rect x="32.7612%" y="692" width="4.3686%" height="15" fill="rgb(245,192,40)"/><text x="33.0112%" y="702.50">0x7f8..</text></g><g><title>0x7f89e38091a7 (libcuda.so.460.39) (8,100 samples, 4.53%)</title><rect x="32.6286%" y="676" width="4.5331%" height="15" fill="rgb(238,167,29)"/><text x="32.8786%" y="686.50">0x7f8..</text></g><g><title>0x7f89e391455b (libcuda.so.460.39) (9,925 samples, 5.55%)</title><rect x="32.5340%" y="660" width="5.5545%" height="15" fill="rgb(232,182,51)"/><text x="32.7840%" y="670.50">0x7f89e..</text></g><g><title>0x7f89e37d15d4 (libcuda.so.460.39) (9,041 samples, 5.06%)</title><rect x="38.0890%" y="676" width="5.0598%" height="15" fill="rgb(231,60,39)"/><text x="38.3390%" y="686.50">0x7f89..</text></g><g><title>0x7f89e39145b3 (libcuda.so.460.39) (10,752 samples, 6.02%)</title><rect x="38.0890%" y="660" width="6.0173%" height="15" fill="rgb(208,69,12)"/><text x="38.3390%" y="670.50">0x7f89e3..</text></g><g><title>0x7f89e3914a01 (libcuda.so.460.39) (20,682 samples, 11.57%)</title><rect x="32.5334%" y="644" width="11.5746%" height="15" fill="rgb(235,93,37)"/><text x="32.7834%" y="654.50">0x7f89e3914a01 (l..</text></g><g><title>0x7f89e376f595 (libcuda.so.460.39) (21,386 samples, 11.97%)</title><rect x="32.5261%" y="596" width="11.9686%" height="15" fill="rgb(213,116,39)"/><text x="32.7761%" y="606.50">0x7f89e376f595 (li..</text></g><g><title>0x7f89e376eebc (libcuda.so.460.39) (21,386 samples, 11.97%)</title><rect x="32.5261%" y="612" width="11.9686%" height="15" fill="rgb(222,207,29)"/><text x="32.7761%" y="622.50">0x7f89e376eebc (li..</text></g><g><title>0x7f89e39fd27d (libcuda.so.460.39) (21,381 samples, 11.97%)</title><rect x="32.5289%" y="628" width="11.9658%" height="15" fill="rgb(206,96,30)"/><text x="32.7789%" y="638.50">0x7f89e39fd27d (li..</text></g><g><title>0x7f89e3771022 (libcuda.so.460.39) (21,390 samples, 11.97%)</title><rect x="32.5245%" y="580" width="11.9709%" height="15" fill="rgb(218,138,4)"/><text x="32.7745%" y="590.50">0x7f89e3771022 (li..</text></g><g><title>cuMemcpyDtoHAsync_v2 (tensorflow/python/_pywrap_tensorflow_internal.so) (21,408 samples, 11.98%)</title><rect x="32.5233%" y="548" width="11.9809%" height="15" fill="rgb(250,191,14)"/><text x="32.7733%" y="558.50">cuMemcpyDtoHAsync_..</text></g><g><title>cuMemcpyDtoHAsync_v2 (libcuda.so.460.39) (21,408 samples, 11.98%)</title><rect x="32.5233%" y="564" width="11.9809%" height="15" fill="rgb(239,60,40)"/><text x="32.7733%" y="574.50">cuMemcpyDtoHAsync_..</text></g><g><title>stream_executor::gpu::GpuDriver::AsynchronousMemcpyD2H (tensorflow/python/_pywrap_tensorflow_internal.so) (21,412 samples, 11.98%)</title><rect x="32.5228%" y="532" width="11.9832%" height="15" fill="rgb(206,27,48)"/><text x="32.7728%" y="542.50">stream_executor::g..</text></g><g><title>stream_executor::Stream::ThenMemcpy (tensorflow/python/_pywrap_tensorflow_internal.so) (21,415 samples, 11.98%)</title><rect x="32.5217%" y="516" width="11.9848%" height="15" fill="rgb(225,35,8)"/><text x="32.7717%" y="526.50">stream_executor::S..</text></g><g><title>tensorflow::CopyDeviceToHost (tensorflow/libtensorflow_framework.so.2) (21,513 samples, 12.04%)</title><rect x="32.5077%" y="468" width="12.0397%" height="15" fill="rgb(250,213,24)"/><text x="32.7577%" y="478.50">tensorflow::CopyDe..</text></g><g><title>tensorflow::GPUDeviceContext::CopyDeviceTensorToCPU (tensorflow/libtensorflow_framework.so.2) (21,512 samples, 12.04%)</title><rect x="32.5082%" y="484" width="12.0391%" height="15" fill="rgb(247,123,22)"/><text x="32.7582%" y="494.50">tensorflow::GPUDev..</text></g><g><title>tensorflow::GPUUtil::CopyGPUTensorToCPU (tensorflow/libtensorflow_framework.so.2) (21,511 samples, 12.04%)</title><rect x="32.5088%" y="500" width="12.0386%" height="15" fill="rgb(231,138,38)"/><text x="32.7588%" y="510.50">tensorflow::GPUUti..</text></g><g><title>tensorflow::CopyTensor::ViaDMA (tensorflow/libtensorflow_framework.so.2) (21,536 samples, 12.05%)</title><rect x="32.4993%" y="452" width="12.0526%" height="15" fill="rgb(231,145,46)"/><text x="32.7493%" y="462.50">tensorflow::CopyTe..</text></g><g><title>tensorflow::TensorHandle::CopyToDevice (tensorflow/python/_pywrap_tensorflow_internal.so) (74,322 samples, 41.59%)</title><rect x="2.9667%" y="436" width="41.5941%" height="15" fill="rgb(251,118,11)"/><text x="3.2167%" y="446.50">tensorflow::TensorHandle::CopyToDevice (tensorflow/python/_pywrap_te..</text></g><g><title>TFE_TensorHandleResolve (tensorflow/python/_pywrap_tensorflow_internal.so) (74,345 samples, 41.61%)</title><rect x="2.9561%" y="404" width="41.6070%" height="15" fill="rgb(217,147,25)"/><text x="3.2061%" y="414.50">TFE_TensorHandleResolve (tensorflow/python/_pywrap_tensorflow_intern..</text></g><g><title>tensorflow::TensorHandle::Resolve (tensorflow/python/_pywrap_tensorflow_internal.so) (74,344 samples, 41.61%)</title><rect x="2.9566%" y="420" width="41.6064%" height="15" fill="rgb(247,81,37)"/><text x="3.2066%" y="430.50">tensorflow::TensorHandle::Resolve (tensorflow/python/_pywrap_tensorf..</text></g><g><title>numpy (tensorflow/python/framework/ops.py:1071) (75,521 samples, 42.27%)</title><rect x="2.3091%" y="340" width="42.2651%" height="15" fill="rgb(209,12,38)"/><text x="2.5591%" y="350.50">numpy (tensorflow/python/framework/ops.py:1071)</text></g><g><title>_numpy (tensorflow/python/framework/ops.py:1037) (75,518 samples, 42.26%)</title><rect x="2.3108%" y="356" width="42.2634%" height="15" fill="rgb(227,1,9)"/><text x="2.5608%" y="366.50">_numpy (tensorflow/python/framework/ops.py:1037)</text></g><g><title>EagerTensor_numpy_internal (tensorflow/python/_pywrap_tensorflow_internal.so) (74,368 samples, 41.62%)</title><rect x="2.9544%" y="372" width="41.6198%" height="15" fill="rgb(248,47,43)"/><text x="3.2044%" y="382.50">EagerTensor_numpy_internal (tensorflow/python/_pywrap_tensorflow_int..</text></g><g><title>tensorflow::TFE_TensorHandleToNumpy (tensorflow/python/_pywrap_tensorflow_internal.so) (74,367 samples, 41.62%)</title><rect x="2.9549%" y="388" width="41.6193%" height="15" fill="rgb(221,10,30)"/><text x="3.2049%" y="398.50">tensorflow::TFE_TensorHandleToNumpy (tensorflow/python/_pywrap_tenso..</text></g><g><title>0x7f8b6e2094fa (libc-2.32.so) (2,337 samples, 1.31%)</title><rect x="45.2229%" y="420" width="1.3079%" height="15" fill="rgb(210,229,1)"/><text x="45.4729%" y="430.50"></text></g><g><title>0x7f8b6e209504 (libc-2.32.so) (2,248 samples, 1.26%)</title><rect x="47.2963%" y="420" width="1.2581%" height="15" fill="rgb(222,148,37)"/><text x="47.5463%" y="430.50"></text></g><g><title>0x7f8b6e209512 (libc-2.32.so) (5,122 samples, 2.87%)</title><rect x="48.6199%" y="420" width="2.8665%" height="15" fill="rgb(234,67,33)"/><text x="48.8699%" y="430.50">0x..</text></g><g><title>PyArray_AssignArray (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,573 samples, 7.60%)</title><rect x="44.5865%" y="388" width="7.5961%" height="15" fill="rgb(247,98,35)"/><text x="44.8365%" y="398.50">PyArray_As..</text></g><g><title>raw_array_assign_array (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,571 samples, 7.59%)</title><rect x="44.5877%" y="404" width="7.5950%" height="15" fill="rgb(247,138,52)"/><text x="44.8377%" y="414.50">raw_array_..</text></g><g><title>_to_single_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:510) (89,161 samples, 49.90%)</title><rect x="2.2990%" y="324" width="49.8987%" height="15" fill="rgb(213,79,30)"/><text x="2.5490%" y="334.50">_to_single_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:510)</text></g><g><title>numpy (tensorflow/python/framework/ops.py:1072) (13,622 samples, 7.62%)</title><rect x="44.5742%" y="340" width="7.6235%" height="15" fill="rgb(246,177,23)"/><text x="44.8242%" y="350.50">numpy (ten..</text></g><g><title>array_copy (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,602 samples, 7.61%)</title><rect x="44.5854%" y="356" width="7.6123%" height="15" fill="rgb(230,62,27)"/><text x="44.8354%" y="366.50">array_copy..</text></g><g><title>PyArray_NewCopy (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,601 samples, 7.61%)</title><rect x="44.5860%" y="372" width="7.6118%" height="15" fill="rgb(216,154,8)"/><text x="44.8360%" y="382.50">PyArray_Ne..</text></g><g><title>map_structure (tensorflow/python/util/nest.py:659) (89,222 samples, 49.93%)</title><rect x="2.2906%" y="292" width="49.9328%" height="15" fill="rgb(244,35,45)"/><text x="2.5406%" y="302.50">map_structure (tensorflow/python/util/nest.py:659)</text></g><g><title>&lt;listcomp&gt; (tensorflow/python/util/nest.py:659) (89,220 samples, 49.93%)</title><rect x="2.2918%" y="308" width="49.9317%" height="15" fill="rgb(251,115,12)"/><text x="2.5418%" y="318.50">&lt;listcomp&gt; (tensorflow/python/util/nest.py:659)</text></g><g><title>_batch_update_progbar (tensorflow/python/keras/callbacks.py:1084) (89,272 samples, 49.96%)</title><rect x="2.2895%" y="260" width="49.9608%" height="15" fill="rgb(240,54,50)"/><text x="2.5395%" y="270.50">_batch_update_progbar (tensorflow/python/keras/callbacks.py:1084)</text></g><g><title>to_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:514) (89,272 samples, 49.96%)</title><rect x="2.2895%" y="276" width="49.9608%" height="15" fill="rgb(233,84,52)"/><text x="2.5395%" y="286.50">to_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:514)</text></g><g><title>execute_legacy_ufunc_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,300 samples, 10.24%)</title><rect x="52.4070%" y="340" width="10.2415%" height="15" fill="rgb(207,117,47)"/><text x="52.6570%" y="350.50">execute_legacy_..</text></g><g><title>trivial_three_operand_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,278 samples, 10.23%)</title><rect x="52.4194%" y="356" width="10.2292%" height="15" fill="rgb(249,43,39)"/><text x="52.6694%" y="366.50">trivial_three_o..</text></g><g><title>sse2_binary_scalar2_multiply_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,273 samples, 10.23%)</title><rect x="52.4222%" y="372" width="10.2264%" height="15" fill="rgb(209,38,44)"/><text x="52.6722%" y="382.50">sse2_binary_sca..</text></g><g><title>PyUFunc_GenericFunction_int (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,318 samples, 10.25%)</title><rect x="52.3981%" y="324" width="10.2516%" height="15" fill="rgb(236,212,23)"/><text x="52.6481%" y="334.50">PyUFunc_Generic..</text></g><g><title>array_multiply (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,335 samples, 10.26%)</title><rect x="52.3936%" y="292" width="10.2611%" height="15" fill="rgb(242,79,21)"/><text x="52.6436%" y="302.50">array_multiply ..</text></g><g><title>ufunc_generic_call (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,330 samples, 10.26%)</title><rect x="52.3964%" y="308" width="10.2583%" height="15" fill="rgb(211,96,35)"/><text x="52.6464%" y="318.50">ufunc_generic_c..</text></g><g><title>FLOAT_add (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,393 samples, 7.50%)</title><rect x="62.6671%" y="356" width="7.4954%" height="15" fill="rgb(253,215,40)"/><text x="62.9171%" y="366.50">FLOAT_add ..</text></g><g><title>execute_legacy_ufunc_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,406 samples, 7.50%)</title><rect x="62.6603%" y="324" width="7.5026%" height="15" fill="rgb(211,81,21)"/><text x="62.9103%" y="334.50">execute_le..</text></g><g><title>trivial_three_operand_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,398 samples, 7.50%)</title><rect x="62.6648%" y="340" width="7.4982%" height="15" fill="rgb(208,190,38)"/><text x="62.9148%" y="350.50">trivial_th..</text></g><g><title>PyUFunc_GenericFunction_int (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,415 samples, 7.51%)</title><rect x="62.6570%" y="308" width="7.5077%" height="15" fill="rgb(235,213,38)"/><text x="62.9070%" y="318.50">PyUFunc_Ge..</text></g><g><title>update (tensorflow/python/keras/utils/generic_utils.py:560) (31,981 samples, 17.90%)</title><rect x="52.2671%" y="276" width="17.8981%" height="15" fill="rgb(237,122,38)"/><text x="52.5171%" y="286.50">update (tensorflow/python/ke..</text></g><g><title>ufunc_generic_call (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,420 samples, 7.51%)</title><rect x="62.6547%" y="292" width="7.5105%" height="15" fill="rgb(244,218,35)"/><text x="62.9047%" y="302.50">ufunc_gene..</text></g><g><title>execute_legacy_ufunc_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (17,998 samples, 10.07%)</title><rect x="70.3907%" y="340" width="10.0725%" height="15" fill="rgb(240,68,47)"/><text x="70.6407%" y="350.50">execute_legacy_..</text></g><g><title>trivial_three_operand_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (17,971 samples, 10.06%)</title><rect x="70.4059%" y="356" width="10.0574%" height="15" fill="rgb(210,16,53)"/><text x="70.6559%" y="366.50">trivial_three_o..</text></g><g><title>sse2_binary_scalar2_divide_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (17,969 samples, 10.06%)</title><rect x="70.4070%" y="372" width="10.0563%" height="15" fill="rgb(235,124,12)"/><text x="70.6570%" y="382.50">sse2_binary_sca..</text></g><g><title>PyUFunc_GenericFunction_int (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,004 samples, 10.08%)</title><rect x="70.3879%" y="324" width="10.0759%" height="15" fill="rgb(224,169,11)"/><text x="70.6379%" y="334.50">PyUFunc_Generic..</text></g><g><title>array_true_divide (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,015 samples, 10.08%)</title><rect x="70.3840%" y="292" width="10.0820%" height="15" fill="rgb(250,166,2)"/><text x="70.6340%" y="302.50">array_true_divi..</text></g><g><title>ufunc_generic_call (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (18,012 samples, 10.08%)</title><rect x="70.3857%" y="308" width="10.0804%" height="15" fill="rgb(242,216,29)"/><text x="70.6357%" y="318.50">ufunc_generic_c..</text></g><g><title>FLOAT_add (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,085 samples, 5.64%)</title><rect x="80.5718%" y="420" width="5.6440%" height="15" fill="rgb(230,116,27)"/><text x="80.8218%" y="430.50">FLOAT_a..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,060 samples, 5.63%)</title><rect x="80.5858%" y="436" width="5.6301%" height="15" fill="rgb(228,99,48)"/><text x="80.8358%" y="446.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,051 samples, 5.63%)</title><rect x="80.5909%" y="452" width="5.6250%" height="15" fill="rgb(253,11,6)"/><text x="80.8409%" y="462.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,038 samples, 5.62%)</title><rect x="80.5982%" y="468" width="5.6177%" height="15" fill="rgb(247,143,39)"/><text x="80.8482%" y="478.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,010 samples, 5.60%)</title><rect x="80.6138%" y="484" width="5.6021%" height="15" fill="rgb(236,97,10)"/><text x="80.8638%" y="494.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (9,942 samples, 5.56%)</title><rect x="80.6519%" y="500" width="5.5640%" height="15" fill="rgb(233,208,19)"/><text x="80.9019%" y="510.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (9,829 samples, 5.50%)</title><rect x="80.7151%" y="516" width="5.5008%" height="15" fill="rgb(216,164,2)"/><text x="80.9651%" y="526.50">pairwis..</text></g><g><title>pairwise_sum_FLOAT (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (9,555 samples, 5.35%)</title><rect x="80.8685%" y="532" width="5.3474%" height="15" fill="rgb(220,129,5)"/><text x="81.1185%" y="542.50">pairwis..</text></g><g><title>PyUFunc_ReduceWrapper (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,308 samples, 5.77%)</title><rect x="80.5377%" y="388" width="5.7688%" height="15" fill="rgb(242,17,10)"/><text x="80.7877%" y="398.50">PyUFunc..</text></g><g><title>reduce_loop (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,261 samples, 5.74%)</title><rect x="80.5640%" y="404" width="5.7425%" height="15" fill="rgb(242,107,0)"/><text x="80.8140%" y="414.50">reduce_..</text></g><g><title>_mean (numpy/core/_methods.py:160) (10,336 samples, 5.78%)</title><rect x="80.5248%" y="340" width="5.7845%" height="15" fill="rgb(251,28,31)"/><text x="80.7748%" y="350.50">_mean (..</text></g><g><title>ufunc_reduce (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,334 samples, 5.78%)</title><rect x="80.5260%" y="356" width="5.7834%" height="15" fill="rgb(233,223,10)"/><text x="80.7760%" y="366.50">ufunc_r..</text></g><g><title>PyUFunc_GenericReduction (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,333 samples, 5.78%)</title><rect x="80.5265%" y="372" width="5.7828%" height="15" fill="rgb(215,21,27)"/><text x="80.7765%" y="382.50">PyUFunc..</text></g><g><title>update (tensorflow/python/keras/utils/generic_utils.py:625) (28,775 samples, 16.10%)</title><rect x="70.2475%" y="276" width="16.1038%" height="15" fill="rgb(232,23,21)"/><text x="70.4975%" y="286.50">update (tensorflow/python..</text></g><g><title>mean (&lt;__array_function__ internals&gt;:6) (10,510 samples, 5.88%)</title><rect x="80.4694%" y="292" width="5.8819%" height="15" fill="rgb(244,5,23)"/><text x="80.7194%" y="302.50">mean (&lt;..</text></g><g><title>array_implement_array_function (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (10,508 samples, 5.88%)</title><rect x="80.4706%" y="308" width="5.8808%" height="15" fill="rgb(226,81,46)"/><text x="80.7206%" y="318.50">array_i..</text></g><g><title>mean (numpy/core/fromnumeric.py:3373) (10,484 samples, 5.87%)</title><rect x="80.4840%" y="324" width="5.8673%" height="15" fill="rgb(247,70,30)"/><text x="80.7340%" y="334.50">mean (n..</text></g><g><title>_batch_update_progbar (tensorflow/python/keras/callbacks.py:1085) (61,012 samples, 34.15%)</title><rect x="52.2503%" y="260" width="34.1452%" height="15" fill="rgb(212,68,19)"/><text x="52.5003%" y="270.50">_batch_update_progbar (tensorflow/python/keras/callback..</text></g><g><title>on_train_batch_end (tensorflow/python/keras/callbacks.py:1020) (150,374 samples, 84.16%)</title><rect x="2.2884%" y="244" width="84.1564%" height="15" fill="rgb(240,187,13)"/><text x="2.5384%" y="254.50">on_train_batch_end (tensorflow/python/keras/callbacks.py:1020)</text></g><g><title>_call_batch_hook_helper (tensorflow/python/keras/callbacks.py:356) (150,472 samples, 84.21%)</title><rect x="2.2862%" y="228" width="84.2112%" height="15" fill="rgb(223,113,26)"/><text x="2.5362%" y="238.50">_call_batch_hook_helper (tensorflow/python/keras/callbacks.py:356)</text></g><g><title>0x7f8b6e2094fa (libc-2.32.so) (2,381 samples, 1.33%)</title><rect x="87.2238%" y="388" width="1.3325%" height="15" fill="rgb(206,192,2)"/><text x="87.4738%" y="398.50"></text></g><g><title>0x7f8b6e209504 (libc-2.32.so) (2,338 samples, 1.31%)</title><rect x="89.3421%" y="388" width="1.3085%" height="15" fill="rgb(241,108,4)"/><text x="89.5921%" y="398.50"></text></g><g><title>0x7f8b6e209512 (libc-2.32.so) (5,153 samples, 2.88%)</title><rect x="90.6992%" y="388" width="2.8839%" height="15" fill="rgb(247,173,49)"/><text x="90.9492%" y="398.50">0x..</text></g><g><title>PyArray_AssignArray (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,804 samples, 7.73%)</title><rect x="86.5763%" y="356" width="7.7254%" height="15" fill="rgb(224,114,35)"/><text x="86.8263%" y="366.50">PyArray_Ass..</text></g><g><title>raw_array_assign_array (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,804 samples, 7.73%)</title><rect x="86.5763%" y="372" width="7.7254%" height="15" fill="rgb(245,159,27)"/><text x="86.8263%" y="382.50">raw_array_a..</text></g><g><title>_to_single_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:510) (13,889 samples, 7.77%)</title><rect x="86.5354%" y="292" width="7.7729%" height="15" fill="rgb(245,172,44)"/><text x="86.7854%" y="302.50">_to_single_..</text></g><g><title>numpy (tensorflow/python/framework/ops.py:1072) (13,826 samples, 7.74%)</title><rect x="86.5707%" y="308" width="7.7377%" height="15" fill="rgb(236,23,11)"/><text x="86.8207%" y="318.50">numpy (tens..</text></g><g><title>array_copy (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,817 samples, 7.73%)</title><rect x="86.5757%" y="324" width="7.7326%" height="15" fill="rgb(205,117,38)"/><text x="86.8257%" y="334.50">array_copy ..</text></g><g><title>PyArray_NewCopy (numpy/core/_multiarray_umath.cpython-37m-x86_64-linux-gnu.so) (13,816 samples, 7.73%)</title><rect x="86.5763%" y="340" width="7.7321%" height="15" fill="rgb(237,72,25)"/><text x="86.8263%" y="350.50">PyArray_New..</text></g><g><title>map_structure (tensorflow/python/util/nest.py:659) (13,949 samples, 7.81%)</title><rect x="86.5287%" y="260" width="7.8065%" height="15" fill="rgb(244,70,9)"/><text x="86.7787%" y="270.50">map_structu..</text></g><g><title>&lt;listcomp&gt; (tensorflow/python/util/nest.py:659) (13,948 samples, 7.81%)</title><rect x="86.5293%" y="276" width="7.8060%" height="15" fill="rgb(217,125,39)"/><text x="86.7793%" y="286.50">&lt;listcomp&gt; ..</text></g><g><title>_call_batch_hook_helper (tensorflow/python/keras/callbacks.py:359) (14,056 samples, 7.87%)</title><rect x="86.4974%" y="228" width="7.8664%" height="15" fill="rgb(235,36,10)"/><text x="86.7474%" y="238.50">_call_batch..</text></g><g><title>to_numpy_or_python_type (tensorflow/python/keras/utils/tf_utils.py:514) (14,048 samples, 7.86%)</title><rect x="86.5019%" y="244" width="7.8619%" height="15" fill="rgb(251,123,47)"/><text x="86.7519%" y="254.50">to_numpy_or..</text></g><g><title>_call_batch_end_hook (tensorflow/python/keras/callbacks.py:316) (164,653 samples, 92.15%)</title><rect x="2.2800%" y="212" width="92.1476%" height="15" fill="rgb(221,13,13)"/><text x="2.5300%" y="222.50">_call_batch_end_hook (tensorflow/python/keras/callbacks.py:316)</text></g><g><title>fit (tensorflow/python/keras/engine/training.py:1117) (164,655 samples, 92.15%)</title><rect x="2.2800%" y="164" width="92.1487%" height="15" fill="rgb(238,131,9)"/><text x="2.5300%" y="174.50">fit (tensorflow/python/keras/engine/training.py:1117)</text></g><g><title>on_train_batch_end (tensorflow/python/keras/callbacks.py:454) (164,655 samples, 92.15%)</title><rect x="2.2800%" y="180" width="92.1487%" height="15" fill="rgb(211,50,8)"/><text x="2.5300%" y="190.50">on_train_batch_end (tensorflow/python/keras/callbacks.py:454)</text></g><g><title>_call_batch_hook (tensorflow/python/keras/callbacks.py:296) (164,655 samples, 92.15%)</title><rect x="2.2800%" y="196" width="92.1487%" height="15" fill="rgb(245,182,24)"/><text x="2.5300%" y="206.50">_call_batch_hook (tensorflow/python/keras/callbacks.py:296)</text></g><g><title>tensorflow::EncodePngOp::Compute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,042 samples, 1.14%)</title><rect x="96.0108%" y="724" width="1.1428%" height="15" fill="rgb(242,14,37)"/><text x="96.2608%" y="734.50"></text></g><g><title>tensorflow::png::WriteImageToBuffer&lt;tensorflow::tstring&gt; (tensorflow/python/_pywrap_tensorflow_internal.so) (2,042 samples, 1.14%)</title><rect x="96.0108%" y="740" width="1.1428%" height="15" fill="rgb(246,228,12)"/><text x="96.2608%" y="750.50"></text></g><g><title>png_write_row (tensorflow/python/_pywrap_tensorflow_internal.so) (2,041 samples, 1.14%)</title><rect x="96.0114%" y="756" width="1.1422%" height="15" fill="rgb(213,55,15)"/><text x="96.2614%" y="766.50"></text></g><g><title>png_write_find_filter (tensorflow/python/_pywrap_tensorflow_internal.so) (2,034 samples, 1.14%)</title><rect x="96.0153%" y="772" width="1.1383%" height="15" fill="rgb(209,9,3)"/><text x="96.2653%" y="782.50"></text></g><g><title>encode_png (tensorflow/python/ops/gen_image_ops.py:1744) (2,051 samples, 1.15%)</title><rect x="96.0064%" y="532" width="1.1478%" height="15" fill="rgb(230,59,30)"/><text x="96.2564%" y="542.50"></text></g><g><title>pybind11::cpp_function::dispatcher (tensorflow/python/_pywrap_tfe.so) (2,051 samples, 1.15%)</title><rect x="96.0064%" y="548" width="1.1478%" height="15" fill="rgb(209,121,21)"/><text x="96.2564%" y="558.50"></text></g><g><title>pybind11::cpp_function::initialize&lt;pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::args)#43}, pybind11::object, pybind11::args, pybind11::name, pybind11::scope, pybind11::sibling&gt;(pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::args&amp;&amp;)#43}, pybind11::object (*)(pybind11::args), pybind11::name const, pybind11::scope&amp;, pybind11::sibling)::{lambda(pybind11::detail::function_call&amp;)#3}::_FUN (tensorflow/python/_pywrap_tfe.so) (2,051 samples, 1.15%)</title><rect x="96.0064%" y="564" width="1.1478%" height="15" fill="rgb(220,109,13)"/><text x="96.2564%" y="574.50"></text></g><g><title>TFE_Py_FastPathExecute_C (tensorflow/python/_pywrap_tensorflow_internal.so) (2,051 samples, 1.15%)</title><rect x="96.0064%" y="580" width="1.1478%" height="15" fill="rgb(232,18,1)"/><text x="96.2564%" y="590.50"></text></g><g><title>TFE_Execute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,046 samples, 1.15%)</title><rect x="96.0092%" y="596" width="1.1450%" height="15" fill="rgb(215,41,42)"/><text x="96.2592%" y="606.50"></text></g><g><title>tensorflow::EagerOperation::Execute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,046 samples, 1.15%)</title><rect x="96.0092%" y="612" width="1.1450%" height="15" fill="rgb(224,123,36)"/><text x="96.2592%" y="622.50"></text></g><g><title>tensorflow::EagerExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,046 samples, 1.15%)</title><rect x="96.0092%" y="628" width="1.1450%" height="15" fill="rgb(240,125,3)"/><text x="96.2592%" y="638.50"></text></g><g><title>tensorflow::(anonymous namespace)::EagerLocalExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,046 samples, 1.15%)</title><rect x="96.0092%" y="644" width="1.1450%" height="15" fill="rgb(205,98,50)"/><text x="96.2592%" y="654.50"></text></g><g><title>tensorflow::EagerExecutor::SyncExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,045 samples, 1.14%)</title><rect x="96.0097%" y="660" width="1.1445%" height="15" fill="rgb(205,185,37)"/><text x="96.2597%" y="670.50"></text></g><g><title>tensorflow::ExecuteNode::Run (tensorflow/python/_pywrap_tensorflow_internal.so) (2,045 samples, 1.14%)</title><rect x="96.0097%" y="676" width="1.1445%" height="15" fill="rgb(238,207,15)"/><text x="96.2597%" y="686.50"></text></g><g><title>tensorflow::EagerKernelExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (2,045 samples, 1.14%)</title><rect x="96.0097%" y="692" width="1.1445%" height="15" fill="rgb(213,199,42)"/><text x="96.2597%" y="702.50"></text></g><g><title>tensorflow::KernelAndDeviceOp::Run (tensorflow/python/_pywrap_tensorflow_internal.so) (2,045 samples, 1.14%)</title><rect x="96.0097%" y="708" width="1.1445%" height="15" fill="rgb(235,201,11)"/><text x="96.2597%" y="718.50"></text></g><g><title>compute (tensorflow/python/ops/map_fn.py:499) (2,053 samples, 1.15%)</title><rect x="96.0058%" y="484" width="1.1490%" height="15" fill="rgb(207,46,11)"/><text x="96.2558%" y="494.50"></text></g><g><title>wrapper (tensorflow/python/util/dispatch.py:201) (2,053 samples, 1.15%)</title><rect x="96.0058%" y="500" width="1.1490%" height="15" fill="rgb(241,35,35)"/><text x="96.2558%" y="510.50"></text></g><g><title>encode_png (tensorflow/python/ops/image_ops_impl.py:2940) (2,052 samples, 1.15%)</title><rect x="96.0064%" y="516" width="1.1484%" height="15" fill="rgb(243,32,47)"/><text x="96.2564%" y="526.50"></text></g><g><title>while_loop (tensorflow/python/ops/control_flow_ops.py:2735) (2,104 samples, 1.18%)</title><rect x="96.0002%" y="452" width="1.1775%" height="15" fill="rgb(247,202,23)"/><text x="96.2502%" y="462.50"></text></g><g><title>&lt;lambda&gt; (tensorflow/python/ops/control_flow_ops.py:2726) (2,104 samples, 1.18%)</title><rect x="96.0002%" y="468" width="1.1775%" height="15" fill="rgb(219,102,11)"/><text x="96.2502%" y="478.50"></text></g><g><title>map_fn (tensorflow/python/ops/map_fn.py:515) (2,118 samples, 1.19%)</title><rect x="95.9940%" y="436" width="1.1853%" height="15" fill="rgb(243,110,44)"/><text x="96.2440%" y="446.50"></text></g><g><title>lazy_tensor (tensorboard/plugins/image/summary_v2.py:84) (2,132 samples, 1.19%)</title><rect x="95.9890%" y="356" width="1.1932%" height="15" fill="rgb(222,74,54)"/><text x="96.2390%" y="366.50"></text></g><g><title>new_func (tensorflow/python/util/deprecation.py:605) (2,130 samples, 1.19%)</title><rect x="95.9901%" y="372" width="1.1920%" height="15" fill="rgb(216,99,12)"/><text x="96.2401%" y="382.50"></text></g><g><title>new_func (tensorflow/python/util/deprecation.py:538) (2,130 samples, 1.19%)</title><rect x="95.9901%" y="388" width="1.1920%" height="15" fill="rgb(226,22,26)"/><text x="96.2401%" y="398.50"></text></g><g><title>map_fn_v2 (tensorflow/python/ops/map_fn.py:659) (2,130 samples, 1.19%)</title><rect x="95.9901%" y="404" width="1.1920%" height="15" fill="rgb(217,163,10)"/><text x="96.2401%" y="414.50"></text></g><g><title>new_func (tensorflow/python/util/deprecation.py:538) (2,129 samples, 1.19%)</title><rect x="95.9907%" y="420" width="1.1915%" height="15" fill="rgb(213,25,53)"/><text x="96.2407%" y="430.50"></text></g><g><title>record (tensorflow/python/ops/summary_ops_v2.py:762) (2,173 samples, 1.22%)</title><rect x="95.9717%" y="324" width="1.2161%" height="15" fill="rgb(252,105,26)"/><text x="96.2217%" y="334.50"></text></g><g><title>__call__ (tensorboard/util/lazy_tensor_creator.py:66) (2,173 samples, 1.22%)</title><rect x="95.9717%" y="340" width="1.2161%" height="15" fill="rgb(220,39,43)"/><text x="96.2217%" y="350.50"></text></g><g><title>image (tensorboard/plugins/image/summary_v2.py:105) (2,198 samples, 1.23%)</title><rect x="95.9610%" y="276" width="1.2301%" height="15" fill="rgb(229,68,48)"/><text x="96.2110%" y="286.50"></text></g><g><title>write (tensorflow/python/ops/summary_ops_v2.py:775) (2,197 samples, 1.23%)</title><rect x="95.9616%" y="292" width="1.2295%" height="15" fill="rgb(252,8,32)"/><text x="96.2116%" y="302.50"></text></g><g><title>smart_cond (tensorflow/python/framework/smart_cond.py:54) (2,182 samples, 1.22%)</title><rect x="95.9700%" y="308" width="1.2212%" height="15" fill="rgb(223,20,43)"/><text x="96.2200%" y="318.50"></text></g><g><title>on_test_batch_end (isp/callbacks.py:51) (2,203 samples, 1.23%)</title><rect x="95.9605%" y="260" width="1.2329%" height="15" fill="rgb(229,81,49)"/><text x="96.2105%" y="270.50"></text></g><g><title>deflate (tensorflow/python/_pywrap_tensorflow_internal.so) (3,665 samples, 2.05%)</title><rect x="97.4922%" y="804" width="2.0511%" height="15" fill="rgb(236,28,36)"/><text x="97.7422%" y="814.50">d..</text></g><g><title>deflate_slow (tensorflow/python/_pywrap_tensorflow_internal.so) (3,665 samples, 2.05%)</title><rect x="97.4922%" y="820" width="2.0511%" height="15" fill="rgb(249,185,26)"/><text x="97.7422%" y="830.50">d..</text></g><g><title>longest_match (tensorflow/python/_pywrap_tensorflow_internal.so) (3,182 samples, 1.78%)</title><rect x="97.7625%" y="836" width="1.7808%" height="15" fill="rgb(249,174,33)"/><text x="98.0125%" y="846.50">l..</text></g><g><title>tensorflow::EncodePngOp::Compute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,146 samples, 2.32%)</title><rect x="97.2309%" y="724" width="2.3203%" height="15" fill="rgb(233,201,37)"/><text x="97.4809%" y="734.50">t..</text></g><g><title>tensorflow::png::WriteImageToBuffer&lt;tensorflow::tstring&gt; (tensorflow/python/_pywrap_tensorflow_internal.so) (4,145 samples, 2.32%)</title><rect x="97.2314%" y="740" width="2.3197%" height="15" fill="rgb(221,78,26)"/><text x="97.4814%" y="750.50">t..</text></g><g><title>png_write_row (tensorflow/python/_pywrap_tensorflow_internal.so) (4,144 samples, 2.32%)</title><rect x="97.2320%" y="756" width="2.3192%" height="15" fill="rgb(250,127,30)"/><text x="97.4820%" y="766.50">p..</text></g><g><title>png_write_find_filter (tensorflow/python/_pywrap_tensorflow_internal.so) (4,139 samples, 2.32%)</title><rect x="97.2348%" y="772" width="2.3164%" height="15" fill="rgb(230,49,44)"/><text x="97.4848%" y="782.50">p..</text></g><g><title>png_compress_IDAT (tensorflow/python/_pywrap_tensorflow_internal.so) (3,679 samples, 2.06%)</title><rect x="97.4922%" y="788" width="2.0589%" height="15" fill="rgb(229,67,23)"/><text x="97.7422%" y="798.50">p..</text></g><g><title>tensorflow::EagerExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="628" width="2.3214%" height="15" fill="rgb(249,83,47)"/><text x="97.4803%" y="638.50">t..</text></g><g><title>tensorflow::(anonymous namespace)::EagerLocalExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="644" width="2.3214%" height="15" fill="rgb(215,43,3)"/><text x="97.4803%" y="654.50">t..</text></g><g><title>tensorflow::EagerExecutor::SyncExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="660" width="2.3214%" height="15" fill="rgb(238,154,13)"/><text x="97.4803%" y="670.50">t..</text></g><g><title>tensorflow::ExecuteNode::Run (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="676" width="2.3214%" height="15" fill="rgb(219,56,2)"/><text x="97.4803%" y="686.50">t..</text></g><g><title>tensorflow::EagerKernelExecute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="692" width="2.3214%" height="15" fill="rgb(233,0,4)"/><text x="97.4803%" y="702.50">t..</text></g><g><title>tensorflow::KernelAndDeviceOp::Run (tensorflow/python/_pywrap_tensorflow_internal.so) (4,148 samples, 2.32%)</title><rect x="97.2303%" y="708" width="2.3214%" height="15" fill="rgb(235,30,7)"/><text x="97.4803%" y="718.50">t..</text></g><g><title>TFE_Execute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,149 samples, 2.32%)</title><rect x="97.2303%" y="596" width="2.3220%" height="15" fill="rgb(250,79,13)"/><text x="97.4803%" y="606.50">T..</text></g><g><title>tensorflow::EagerOperation::Execute (tensorflow/python/_pywrap_tensorflow_internal.so) (4,149 samples, 2.32%)</title><rect x="97.2303%" y="612" width="2.3220%" height="15" fill="rgb(211,146,34)"/><text x="97.4803%" y="622.50">t..</text></g><g><title>compute (tensorflow/python/ops/map_fn.py:499) (4,152 samples, 2.32%)</title><rect x="97.2292%" y="484" width="2.3237%" height="15" fill="rgb(228,22,38)"/><text x="97.4792%" y="494.50">c..</text></g><g><title>wrapper (tensorflow/python/util/dispatch.py:201) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="500" width="2.3231%" height="15" fill="rgb(235,168,5)"/><text x="97.4797%" y="510.50">w..</text></g><g><title>encode_png (tensorflow/python/ops/image_ops_impl.py:2940) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="516" width="2.3231%" height="15" fill="rgb(221,155,16)"/><text x="97.4797%" y="526.50">e..</text></g><g><title>encode_png (tensorflow/python/ops/gen_image_ops.py:1744) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="532" width="2.3231%" height="15" fill="rgb(215,215,53)"/><text x="97.4797%" y="542.50">e..</text></g><g><title>pybind11::cpp_function::dispatcher (tensorflow/python/_pywrap_tfe.so) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="548" width="2.3231%" height="15" fill="rgb(223,4,10)"/><text x="97.4797%" y="558.50">p..</text></g><g><title>pybind11::cpp_function::initialize&lt;pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::args)#43}, pybind11::object, pybind11::args, pybind11::name, pybind11::scope, pybind11::sibling&gt;(pybind11_init__pywrap_tfe(pybind11::module&amp;)::{lambda(pybind11::args&amp;&amp;)#43}, pybind11::object (*)(pybind11::args), pybind11::name const, pybind11::scope&amp;, pybind11::sibling)::{lambda(pybind11::detail::function_call&amp;)#3}::_FUN (tensorflow/python/_pywrap_tfe.so) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="564" width="2.3231%" height="15" fill="rgb(234,103,6)"/><text x="97.4797%" y="574.50">p..</text></g><g><title>TFE_Py_FastPathExecute_C (tensorflow/python/_pywrap_tensorflow_internal.so) (4,151 samples, 2.32%)</title><rect x="97.2297%" y="580" width="2.3231%" height="15" fill="rgb(227,97,0)"/><text x="97.4797%" y="590.50">T..</text></g><g><title>while_loop (tensorflow/python/ops/control_flow_ops.py:2735) (4,198 samples, 2.35%)</title><rect x="97.2264%" y="452" width="2.3494%" height="15" fill="rgb(234,150,53)"/><text x="97.4764%" y="462.50">w..</text></g><g><title>&lt;lambda&gt; (tensorflow/python/ops/control_flow_ops.py:2726) (4,198 samples, 2.35%)</title><rect x="97.2264%" y="468" width="2.3494%" height="15" fill="rgb(228,201,54)"/><text x="97.4764%" y="478.50">&lt;..</text></g><g><title>lazy_tensor (tensorboard/plugins/image/summary_v2.py:84) (4,222 samples, 2.36%)</title><rect x="97.2163%" y="356" width="2.3628%" height="15" fill="rgb(222,22,37)"/><text x="97.4663%" y="366.50">la..</text></g><g><title>new_func (tensorflow/python/util/deprecation.py:605) (4,218 samples, 2.36%)</title><rect x="97.2186%" y="372" width="2.3606%" height="15" fill="rgb(237,53,32)"/><text x="97.4686%" y="382.50">ne..</text></g><g><title>new_func (tensorflow/python/util/deprecation.py:538) (4,217 samples, 2.36%)</title><rect x="97.2191%" y="388" width="2.3600%" height="15" fill="rgb(233,25,53)"/><text x="97.4691%" y="398.50">ne..</text></g><g><title>map_fn_v2 (tensorflow/python/ops/map_fn.py:659) (4,217 samples, 2.36%)</title><rect x="97.2191%" y="404" width="2.3600%" height="15" fill="rgb(210,40,34)"/><text x="97.4691%" y="414.50">ma..</text></g><g><title>new_func (tensorflow/python/util/deprecation.py:538) (4,217 samples, 2.36%)</title><rect x="97.2191%" y="420" width="2.3600%" height="15" fill="rgb(241,220,44)"/><text x="97.4691%" y="430.50">ne..</text></g><g><title>map_fn (tensorflow/python/ops/map_fn.py:515) (4,215 samples, 2.36%)</title><rect x="97.2202%" y="436" width="2.3589%" height="15" fill="rgb(235,28,35)"/><text x="97.4702%" y="446.50">m..</text></g><g><title>record (tensorflow/python/ops/summary_ops_v2.py:762) (4,245 samples, 2.38%)</title><rect x="97.2079%" y="324" width="2.3757%" height="15" fill="rgb(210,56,17)"/><text x="97.4579%" y="334.50">re..</text></g><g><title>__call__ (tensorboard/util/lazy_tensor_creator.py:66) (4,245 samples, 2.38%)</title><rect x="97.2079%" y="340" width="2.3757%" height="15" fill="rgb(224,130,29)"/><text x="97.4579%" y="350.50">__..</text></g><g><title>image (tensorboard/plugins/image/summary_v2.py:105) (4,252 samples, 2.38%)</title><rect x="97.2068%" y="276" width="2.3796%" height="15" fill="rgb(235,212,8)"/><text x="97.4568%" y="286.50">im..</text></g><g><title>write (tensorflow/python/ops/summary_ops_v2.py:775) (4,252 samples, 2.38%)</title><rect x="97.2068%" y="292" width="2.3796%" height="15" fill="rgb(223,33,50)"/><text x="97.4568%" y="302.50">wr..</text></g><g><title>smart_cond (tensorflow/python/framework/smart_cond.py:54) (4,250 samples, 2.38%)</title><rect x="97.2079%" y="308" width="2.3785%" height="15" fill="rgb(219,149,13)"/><text x="97.4579%" y="318.50">sm..</text></g><g><title>_call_batch_hook_helper (tensorflow/python/keras/callbacks.py:360) (7,310 samples, 4.09%)</title><rect x="95.4960%" y="244" width="4.0910%" height="15" fill="rgb(250,156,29)"/><text x="95.7460%" y="254.50">_cal..</text></g><g><title>on_test_batch_end (isp/callbacks.py:57) (4,277 samples, 2.39%)</title><rect x="97.1934%" y="260" width="2.3936%" height="15" fill="rgb(216,193,19)"/><text x="97.4434%" y="270.50">on..</text></g><g><title>evaluate (tensorflow/python/keras/engine/training.py:1407) (8,856 samples, 4.96%)</title><rect x="94.6347%" y="180" width="4.9562%" height="15" fill="rgb(216,135,14)"/><text x="94.8847%" y="190.50">evalua..</text></g><g><title>on_test_batch_end (tensorflow/python/keras/callbacks.py:476) (8,856 samples, 4.96%)</title><rect x="94.6347%" y="196" width="4.9562%" height="15" fill="rgb(241,47,5)"/><text x="94.8847%" y="206.50">on_tes..</text></g><g><title>_call_batch_hook (tensorflow/python/keras/callbacks.py:296) (8,856 samples, 4.96%)</title><rect x="94.6347%" y="212" width="4.9562%" height="15" fill="rgb(233,42,35)"/><text x="94.8847%" y="222.50">_call_..</text></g><g><title>_call_batch_end_hook (tensorflow/python/keras/callbacks.py:316) (8,856 samples, 4.96%)</title><rect x="94.6347%" y="228" width="4.9562%" height="15" fill="rgb(231,13,6)"/><text x="94.8847%" y="238.50">_call_..</text></g><g><title>fit (tensorflow/python/keras/engine/training.py:1154) (9,207 samples, 5.15%)</title><rect x="94.4449%" y="164" width="5.1527%" height="15" fill="rgb(207,181,40)"/><text x="94.6949%" y="174.50">fit (t..</text></g><g><title>&lt;module&gt; (main.py:300) (178,340 samples, 99.81%)</title><rect x="0.0649%" y="68" width="99.8075%" height="15" fill="rgb(254,173,49)"/><text x="0.3149%" y="78.50">&lt;module&gt; (main.py:300)</text></g><g><title>Fire (fire/core.py:138) (178,340 samples, 99.81%)</title><rect x="0.0649%" y="84" width="99.8075%" height="15" fill="rgb(221,1,38)"/><text x="0.3149%" y="94.50">Fire (fire/core.py:138)</text></g><g><title>_Fire (fire/core.py:471) (178,340 samples, 99.81%)</title><rect x="0.0649%" y="100" width="99.8075%" height="15" fill="rgb(206,124,46)"/><text x="0.3149%" y="110.50">_Fire (fire/core.py:471)</text></g><g><title>_CallAndUpdateTrace (fire/core.py:675) (178,340 samples, 99.81%)</title><rect x="0.0649%" y="116" width="99.8075%" height="15" fill="rgb(249,21,11)"/><text x="0.3149%" y="126.50">_CallAndUpdateTrace (fire/core.py:675)</text></g><g><title>run_experiment (main.py:272) (178,301 samples, 99.79%)</title><rect x="0.0867%" y="132" width="99.7857%" height="15" fill="rgb(222,201,40)"/><text x="0.3367%" y="142.50">run_experiment (main.py:272)</text></g><g><title>train (isp/experiment.py:292) (177,605 samples, 99.40%)</title><rect x="0.4763%" y="148" width="99.3961%" height="15" fill="rgb(235,61,29)"/><text x="0.7263%" y="158.50">train (isp/experiment.py:292)</text></g><g><title>all (178,684 samples, 100%)</title><rect x="0.0000%" y="52" width="100.0000%" height="15" fill="rgb(219,207,3)"/><text x="0.2500%" y="62.50"></text></g></svg></svg>

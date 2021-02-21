@@ -272,9 +272,9 @@ class Experiment:
     self.train_dataset = self.builder.get_train_dataset()
     self.val_dataset = self.builder.get_val_dataset()
 
+    self.sanity_check(self.model, self.val_dataset)
     if load_weight is not None:
       logger.info(f'load_weight: {load_weight}')
-      self.sanity_check(self.model, self.val_dataset)
       self.model.load_weights(load_weight)
     
     callback_list = self.callbacks
