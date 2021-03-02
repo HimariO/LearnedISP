@@ -284,9 +284,45 @@ def run_3_stage_experiment(config_path, load_weight=None, skip_stage_1=False, sk
   exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1, skip_stage_2=skip_stage_2)
 
 
+def test_cobi():
+  import torch
+  from cobi_torch import contextual_bilateral_loss
+  A = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
+  B = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
+
+  patch_size = 3
+  cobi = losses.CoBi(patch_size=[patch_size, patch_size])
+
+  _A = tf.image.extract_patches(
+    A,
+    [1, patch_size, patch_size, 1],
+    [1, 1, 1, 1],
+    [1, 1, 1, 1],
+    'VALID')
+  _B = tf.image.extract_patches(
+    B,
+    [1, patch_size, patch_size, 1],
+    [1, 1, 1, 1],
+    [1, 1, 1, 1],
+    'VALID')
+  
+  with torch.no_grad():
+    C2 = contextual_bilateral_loss(
+      torch.tensor(_A.numpy()).permute(0, 3, 1, 2),
+      torch.tensor(_B.numpy()).permute(0, 3, 1, 2),
+      loss_type='l2'
+    )
+    C2 = C2.cpu().numpy()
+    C1 = cobi(A, B)
+    C1 = C1.numpy()
+    d = np.abs(C1 - C2)
+    print(d.max())
+
+
+
 if __name__ == '__main__':
 
-  with logger.catch():
+  with logger.catch(reraise=False):
     soft_gpu_meme_growth()
     os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
 
@@ -298,6 +334,7 @@ if __name__ == '__main__':
       'run_experiment': run_experiment,
       'run_two_stage_experiment': run_two_stage_experiment,
       'run_3_stage_experiment': run_3_stage_experiment,
+      'test_cobi': test_cobi,
     })
     # simple_train('./checkpoints/unet_res_bil_hyp_large')
 

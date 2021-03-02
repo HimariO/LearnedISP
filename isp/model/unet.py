@@ -425,36 +425,38 @@ def functinoal_unet_bay(alpha=0.5, input_shape=[128, 128, 4]):
 
 
 @base.register_model
-class UNetCURL(base.RawBase, UNetBilinearBlocks):
+class UNetCURL(base.RawBase, RepBilinearVGGBlocks):
   """
   R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
   """
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004,
-               alpha=1.0, num_rgb_layer=0, weight_norm=True, **kwargs):
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
     super().__init__(mode, *args, **kwargs)
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
 
     def C(channel): return max(int(channel * alpha), 16)
-    self.block_x1 = self.conv_block(C(32), WN=weight_norm)
-    self.block_x2 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
-    self.block_x4 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
-    self.block_x8 = self.reverse_res_downsample_block(C(256), WN=weight_norm)
-    self.block_x16 = self.reverse_res_downsample_block(C(512), WN=weight_norm)
-    self.up_x16_x8 = self.upsample_layer(C(256))
-    self.block_ux8 = self.res_conv_block(C(256), WN=weight_norm)
-    self.up_x8_x4 = self.upsample_layer(C(128))
-    self.block_ux4 = self.res_conv_block(C(128), WN=weight_norm)
-    self.up_x4_x2 = self.upsample_layer(C(64))
-    self.block_ux2 = self.res_conv_block(C(64), WN=weight_norm)
-    self.up_x2_x1 = self.upsample_layer(C(32))
-    self.last_conv = self.res_conv_block(C(32), WN=weight_norm)
+    self.block_x1 = self.conv_block(C(32), norm_type=norm_type)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), norm_type=norm_type)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), norm_type=norm_type)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), norm_type=norm_type)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), norm_type=norm_type)
+    self.up_x16_x8 = self.upsample_layer(C(256), norm_type=norm_type)
+    self.block_ux8 = self.res_conv_block(C(256), norm_type=norm_type)
+    self.up_x8_x4 = self.upsample_layer(C(128), norm_type=norm_type)
+    self.block_ux4 = self.res_conv_block(C(128), norm_type=norm_type)
+    self.up_x4_x2 = self.upsample_layer(C(64), norm_type=norm_type)
+    self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type)
+    self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
+    self.last_conv = self.res_conv_block(C(32), norm_type=norm_type)
     self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
     # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
 
-    self.curl_x1 = self.reverse_res_downsample_block(C(64), WN=weight_norm)
-    self.curl_x2 = self.reverse_res_downsample_block(C(128), WN=weight_norm)
+    self.curl_raw_ds = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+    self.curl_rgb_ds = tf.keras.layers.AveragePooling2D(pool_size=(4, 4))
+    self.curl_x1 = self.reverse_res_downsample_block(C(64), norm_type=norm_type)
+    self.curl_x2 = self.reverse_res_downsample_block(C(128), norm_type=norm_type)
     self.curl_gap = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_last')
     self.curl_poly_fc = tf.keras.layers.Dense(16 * 3)
     self.curl_poly_r = PLCurve()
@@ -497,7 +499,9 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     rgb = tf.nn.depth_to_space(x, 2)
     r, g, b = tf.split(rgb, 3, axis=-1)
     
-    x_curl = self.curl_x1(up_x1)
+    ds_raw = self.curl_raw_ds(top)
+    ds_rgb = self.curl_rgb_ds(rgb)
+    x_curl = self.curl_x1(tf.concat([ds_raw, ds_rgb], -1))
     x_curl = self.curl_x2(x_curl)
     x_curl = self.curl_gap(x_curl)
     x_curl = self.curl_poly_fc(x_curl)
@@ -507,6 +511,46 @@ class UNetCURL(base.RawBase, UNetBilinearBlocks):
     b = self.curl_poly_b(tf.stop_gradient(b), x_curl[:, 32:])
     # import pdb; pdb.set_trace()
     adj_rgb = tf.concat([r, g, b], axis=-1)
+    return rgb, adj_rgb, x_curl
+  
+  def _call_hsv(self, x, training=None, mask=None):
+    top = x
+    x = x1 = self.block_x1(x)
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = tf.concat([x, x8], axis=-1)
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = tf.concat([x, x4], axis=-1)
+    x = self.block_ux4(x)
+    x = self.up_x4_x2(x)
+    x = up_x2 = tf.concat([x, x2], axis=-1)
+    x = self.block_ux2(x)
+    x = up_x1 = self.up_x2_x1(x)
+    x = tf.concat([x, x1], axis=-1)
+    x = self.last_conv(x)
+    x = self.transform(x)
+    
+    rgb = tf.nn.depth_to_space(x, 2)
+    hsv = tf.image.rgb_to_hsv(rgb)
+    h, s, v = tf.split(hsv, 3, axis=-1)
+    
+    ds_raw = self.curl_raw_ds(top)
+    ds_rgb = self.curl_rgb_ds(rgb)
+    x_curl = self.curl_x1(tf.concat([ds_raw, ds_rgb], -1))
+    x_curl = self.curl_x2(x_curl)
+    x_curl = self.curl_gap(x_curl)
+    x_curl = self.curl_poly_fc(x_curl)
+    
+    h = self.curl_poly_r(tf.stop_gradient(h), x_curl[:,:16])
+    s = self.curl_poly_g(tf.stop_gradient(s), x_curl[:, 16:32])
+    v = self.curl_poly_b(tf.stop_gradient(v), x_curl[:, 32:])
+    # import pdb; pdb.set_trace()
+    adj_hsv = tf.concat([h, s, v], axis=-1)
+    adj_rgb = tf.image.hsv_to_rgb(adj_hsv)
     return rgb, adj_rgb, x_curl
 
 
@@ -686,7 +730,7 @@ class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
   """
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004,
-               alpha=1.0, num_rgb_layer=0, norm_type='wn', **kwargs):
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
     super().__init__(mode, *args, **kwargs)
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
@@ -742,3 +786,34 @@ class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
     x = self.transform(x)
     
     return tf.nn.depth_to_space(x, 2)
+
+
+@base.register_model
+class UNetCoBi(UNetGrid):
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
+    super().__init__(
+      mode, *args,
+      weight_decay_scale=weight_decay_scale,
+      alpha=alpha,
+      num_rgb_layer=num_rgb_layer,
+      norm_type=norm_type,
+      **kwargs)
+    
+    _B5 = tf.keras.applications.EfficientNetB5(
+      input_shape=[256, 256, 3], include_top=False)
+    block3e_add = _B5.layers[188].output  #(32, 32, 64)
+    block5g_add = _B5.layers[395].output  #(16, 16, 176)
+    block7c_add = _B5.layers[572].output  #(8, 8, 512)
+    self.B5 = tf.keras.Model(_B5.input,)
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    
+    dslr_rgb = inputs[model_prediction.INTER_MID_PRED]
+    self.B5(dslr_rgb)
+    return {
+      model_prediction.ENHANCE_RGB: rgb
+    }

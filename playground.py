@@ -215,10 +215,16 @@ net.load_weights('checkpoints/unet_05_curl_plu/checkpoint')
 
 for x, y in val_set:
   raw_rgb = tf.stack([
-    x[io.dataset_element.MAI_RAW_PATCH][0, ..., 0] / 4,
-    tf.reduce_mean(x[io.dataset_element.MAI_RAW_PATCH][0, ..., 1:3], axis=-1) / 4,
-    x[io.dataset_element.MAI_RAW_PATCH][0, ..., 3] / 4,
+    x[io.dataset_element.MAI_RAW_PATCH][0, ..., 0] / 1,
+    tf.reduce_mean(x[io.dataset_element.MAI_RAW_PATCH][0, ..., 1:3], axis=-1) / 1,
+    x[io.dataset_element.MAI_RAW_PATCH][0, ..., 3] / 1,
   ], axis=-1)
+  plt.imshow(raw_rgb)
+  plt.show()
+  
+  plt.imshow(tf.nn.depth_to_space(x[io.dataset_element.MAI_RAW_PATCH], 2)[0, ..., 0])
+  plt.show()
+
   plt.imshow(raw_rgb)
   plt.show()
 
@@ -226,14 +232,19 @@ for x, y in val_set:
   plt.imshow(dslr)
   plt.show()
   
-  x[io.dataset_element.MAI_RAW_PATCH] *= 4
+  # x[io.dataset_element.MAI_RAW_PATCH] *= 4
 
   p = net(x)
+  p['rgb_color_curve'] = tf.nn.relu(p['rgb_color_curve'])
+  p['rgb_color_curve'] = tf.reshape(p['rgb_color_curve'], [-1, 3, 16])
+  
   pred_img = tf.clip_by_value(p[io.model_prediction.INTER_MID_PRED][0], 0, 1)
+  print("INTER_MID_PRED: ", tf.image.psnr(pred_img, dslr, 1.0))
   plt.imshow(pred_img)
   plt.show()
 
   adj_pred_img = tf.clip_by_value(p[io.model_prediction.ENHANCE_RGB][0], 0, 1)
+  print("ENHANCE_RGB: ", tf.image.psnr(adj_pred_img, dslr, 1.0))
   plt.imshow(adj_pred_img)
   plt.show()
 

@@ -4,8 +4,8 @@ from typing import List, Dict
 from collections import defaultdict
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 from loguru import logger
-from tensorflow.python.keras.backend import log
 from isp import metrics, losses, callbacks
 from isp import model
 from isp.model import base, io
@@ -202,6 +202,7 @@ class ExperimentBuilder:
     logger.info(f"losses_dict: {losses_dict}")
     
     adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
+    adam = tfa.optimizers.SWA(adam, start_averaging=8000, average_period=2000)
     model.compile(
       optimizer=adam,
       loss=losses_dict,
@@ -264,6 +265,7 @@ class Experiment:
     import os, psutil
     from loguru import logger
     process = psutil.Process(os.getpid())
+    logger.info(f"[{self.__class__.__name__}] Train")
 
     epoch = self.config.general['epoch'] if epoch is None else epoch
     model_dir = self.config.general['model_dir']

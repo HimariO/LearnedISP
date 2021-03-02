@@ -176,3 +176,113 @@ class HypCirdSSIM(tf.keras.losses.Loss):
       true_fn=lambda: max_mse + struct_loss,
       false_fn=lambda: max_mse)
     return final_loss
+
+
+@register_prediction_loss
+class CoBi(tf.keras.losses.Loss):
+
+  def __init__(self, patch_size=[5, 5], sptial_term=0.1, name=None):
+    super().__init__(name=name)
+    self._patch_size = patch_size
+    self._weight_sp = sptial_term
+  
+  def compute_cx(self, dist_tilde, band_width):
+    """
+    dist_tilde: (B, H'*W', H'*W')
+    """
+    w = tf.exp((1 - dist_tilde) / band_width)  # Eq(3)
+    cx = w / tf.reduce_sum(w, axis=1, keepdims=True)  # Eq(4)
+    return cx
+  
+  def compute_cos_distance(self, x, y):
+    B, H, W, N = tf.shape(x)
+    x_vec = tf.reshape(x, [B, -1, N])
+    y_vec = tf.reshape(y, [B, -1, N])
+    cos_sim = tf.keras.losses.cosine_similarity(x_vec, y_vec)
+    raise NotImplementedError('Not done yet!')
+  
+  def compute_l2_distance(self, x, y):
+    """
+    x: (B, H', W', Ph*Pw*C)
+    """
+    B, H, W, N = tf.shape(x)
+    x_vec = tf.reshape(x, [B, -1, N])
+    y_vec = tf.reshape(y, [B, -1, N])
+    x_s = tf.reduce_sum(x_vec ** 2, axis=2, keepdims=True)
+    y_s = tf.reduce_sum(y_vec ** 2, axis=2, keepdims=True)
+
+    A = y_vec @ tf.transpose(x_vec, perm=[0, 2, 1])
+    dist = y_s - 2 * A + tf.transpose(x_s, perm=[0, 2, 1])
+    dist = tf.transpose(dist, perm=[0, 2, 1])
+    dist = tf.reshape(dist, [B, H*W, H*W])
+    dist = tf.nn.relu(dist)
+
+    return dist
+  
+  def compute_relative_distance(self, dist_raw):
+    """
+    dist_raw: [B, H'*W', H'*W']
+    """
+    dist_min = tf.reduce_min(dist_raw, axis=1, keepdims=True)
+    dist_tilde = dist_raw / (dist_min + 1e-5)
+    return dist_tilde
+  
+  def compute_meshgrid(self, inputs):
+    add_BC_dims = lambda x: tf.expand_dims(tf.expand_dims(x, axis=0), axis=-1)
+    input_shape = tf.shape(input=inputs)
+
+    grid_x, grid_y = tf.meshgrid(tf.range(0, limit=input_shape[2]),
+                                tf.range(0, limit=input_shape[1]))
+
+    grid_x = tf.cast(add_BC_dims(grid_x), tf.float32)
+    grid_x /= tf.reduce_max(input_tensor=grid_x)
+    grid_x = tf.tile(grid_x, [input_shape[0], 1, 1, 1])
+
+    grid_y = tf.cast(add_BC_dims(grid_y), tf.float32)
+    grid_y /= tf.reduce_max(input_tensor=grid_y)
+    grid_y = tf.tile(grid_y, [input_shape[0], 1, 1, 1])
+
+    return tf.concat([grid_x, grid_y], -1)
+  
+  def call(self, y_true, y_pred):
+    """
+    y_true: (B, H, W, C) large & pretrained CNN featuremap
+    """
+
+    # (B, H, W, C) --> (B, H', W', Ph*Pw*C)  | Patch size: (Ph, Pw)
+    tile_true = tf.image.extract_patches(
+      y_true,
+      sizes=[1, *self._patch_size, 1],
+      strides=[1, 1, 1, 1],
+      rates=[1, 1, 1, 1],
+      padding='VALID'
+    )
+    tile_pred = tf.image.extract_patches(
+      y_pred,
+      sizes=[1, *self._patch_size, 1],
+      strides=[1, 1, 1, 1],
+      rates=[1, 1, 1, 1],
+      padding='VALID'
+    )
+
+    grid = self.compute_meshgrid(tile_pred)
+    dist_raw = self.compute_l2_distance(grid, grid)
+    dist_tilde = self.compute_relative_distance(dist_raw)
+    cx_sp = self.compute_cx(dist_tilde, 1.0)
+
+    # feature loss
+    dist_raw = self.compute_l2_distance(tile_true, tile_pred)
+    dist_tilde = self.compute_relative_distance(dist_raw)
+    cx_feat = self.compute_cx(dist_tilde, 1.0)
+
+    # combined loss
+    cx_combine = (1. - self._weight_sp) * cx_feat + self._weight_sp * cx_sp
+
+    k_max_NC = tf.reduce_max(cx_combine, axis=1, keepdims=True)
+
+    cx = tf.reduce_mean(k_max_NC, axis=2)
+    cx_loss = tf.reduce_mean(-tf.math.log(cx + 1e-5))
+
+    return cx_loss
+
+    

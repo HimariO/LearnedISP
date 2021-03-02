@@ -172,12 +172,19 @@ class RepConv(tf.keras.Model):
   def _build(self):
     self.conv3 = tf.keras.layers.Conv2D(
       self.channel, 3, strides=self.strides, padding=self.padding, use_bias=False)
+    self.conv3_1 = tf.keras.layers.Conv2D(
+      self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    self.conv3_2 = tf.keras.layers.Conv2D(
+      self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    
     self.conv1 = tf.keras.layers.Conv2D(
       self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    
     if self.norm_type == 'bn':
       self.bn3 = tf.keras.layers.BatchNormalization()
       self.bn1 = tf.keras.layers.BatchNormalization()
-      self.bn_id = tf.keras.layers.BatchNormalization()
+      # self.bn_id = tf.keras.layers.BatchNormalization()
+      self.bn_id = lambda x: x
     elif self.norm_type == 'wn':
       self.conv3 = WeightNormalization(self.conv3)
       self.conv1 = WeightNormalization(self.conv1)
@@ -198,6 +205,8 @@ class RepConv(tf.keras.Model):
       w1 = self.conv1.get_weights()[0]
       w1_3 = np.pad(w1, [(1, 1), (1, 1), (0, 0), (0, 0)], constant_value=0.0)
       w3 = self.conv3.get_weights()[0]
+
+      raise NotImplementedError()
     else:
       raise ValueError(f"Unknow normalization type: {self.norm_type}")
 
@@ -205,7 +214,7 @@ class RepConv(tf.keras.Model):
     if self.inference:
       return self.rep_conv3(inputs)
     else:
-      x3 = self.bn3(self.conv3(inputs))
+      x3 = self.bn3(self.conv3_2(self.conv3(self.conv3_1(inputs))))
       x1 = self.bn1(self.conv1(inputs))
       if int(inputs.shape[-1]) == self.channel:
         identity = self.bn_id(inputs)

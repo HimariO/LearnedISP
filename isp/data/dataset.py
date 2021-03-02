@@ -94,6 +94,40 @@ MAI_RGB_GROUND_TRUTH=TFExampleFeature(
         bytes_list=tf.train.BytesList(value=[value])),
     tf.io.FixedLenFeature([], tf.string))
 
+"""
+CNN feature maps for CoBi Contextual Loss
+"""
+MAI_RGB_B5_3E = TFExampleFeature(
+    'mai/image_feature/block3e_add/float_list',
+    lambda value: tf.train.Feature(
+        float_list=tf.train.FloatList(value=value)),
+    tf.io.VarLenFeature(tf.float32))
+MAI_RGB_B5_3E_SHAPE = TFExampleFeature(
+    'mai/image_feature/block3e_add/shape',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=value)),
+    tf.io.FixedLenFeature([2], tf.int64))
+MAI_RGB_B5_5G = TFExampleFeature(
+    'mai/image_feature/block5g_add/float_list',
+    lambda value: tf.train.Feature(
+        float_list=tf.train.FloatList(value=value)),
+    tf.io.VarLenFeature(tf.float32))
+MAI_RGB_B5_5G_SHAPE = TFExampleFeature(
+    'mai/image_feature/block5g_add/shape',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=value)),
+    tf.io.FixedLenFeature([2], tf.int64))
+MAI_RGB_B5_7C = TFExampleFeature(
+    'mai/image_feature/block7c_add/float_list',
+    lambda value: tf.train.Feature(
+        float_list=tf.train.FloatList(value=value)),
+    tf.io.VarLenFeature(tf.float32))
+MAI_RGB_B5_7C_SHAPE = TFExampleFeature(
+    'mai/image_feature/block7c_add/shape',
+    lambda value: tf.train.Feature(
+        int64_list=tf.train.Int64List(value=value)),
+    tf.io.FixedLenFeature([2], tf.int64))
+
 
 class Base(abc.ABC):
 
@@ -358,6 +392,85 @@ class MaiIspTFRecordDataset(TFRecordDataset):
       },
       {
         model_prediction.ENHANCE_RGB: rgb_ground_truth,
+      }
+    )
+
+
+@register_dataset
+class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
+
+  def _parse_tf_record(self, record):
+    _ = self
+    key_to_feature = tf.io.parse_single_example(
+        serialized=record,
+        features={
+            feature.key: feature.feature_configuration
+            for feature in [MAI_RAW_INPUT,
+                            MAI_SAMPLE_ID,
+                            MAI_RAW_INPUT_HEIGHT,
+                            MAI_RAW_INPUT_WIDTH,
+                            MAI_RGB_GROUND_TRUTH,
+                            MAI_RGB_B5_3E,
+                            MAI_RGB_B5_3E_SHAPE,
+                            MAI_RGB_B5_5G,
+                            MAI_RGB_B5_5G_SHAPE,
+                            MAI_RGB_B5_7C,
+                            MAI_RGB_B5_7C_SHAPE,]
+        })
+    
+    black_level = 144
+    sample_id = tf.cast(key_to_feature[MAI_SAMPLE_ID.key], tf.int32)
+    img_height = tf.cast(key_to_feature[MAI_RAW_INPUT_HEIGHT.key], tf.int32)
+    img_width = tf.cast(key_to_feature[MAI_RAW_INPUT_WIDTH.key], tf.int32)
+    
+    raw_image = tf.image.decode_png(
+        key_to_feature[MAI_RAW_INPUT.key],
+        channels=1,
+        dtype=tf.dtypes.uint16)
+    
+    raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
+    raw_image = tf.cast(raw_image, dtype=tf.float32)
+    # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
+    
+    raw_image = tf.maximum(raw_image - black_level, 0)
+    raw_image /= (self.BIT_DEPTH - black_level)
+    raw_image.set_shape([None, None, 4])
+    # raw_image = tf.image.resize_with_crop_or_pad(raw_image, img_height, img_width)
+    # raw_image = (raw_image - 0.5) * 2  # scale from [0, 1] to [-1, 1]
+
+    rgb_ground_truth = tf.image.decode_image(
+        key_to_feature[MAI_RGB_GROUND_TRUTH.key]
+    )
+    rgb_ground_truth = tf.cast(rgb_ground_truth, tf.float32)
+    rgb_ground_truth = self._normalize_rgb_image(rgb_ground_truth)
+    rgb_ground_truth.set_shape([None, None, 3])
+
+    large_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_3E_SHAPE.key], tf.int32)
+    large_feat_map = key_to_feature[MAI_RGB_B5_3E.key]
+    large_feat_map = tf.reshape(large_feat_map, large_feat_map_shape)
+    large_feat_map = tf.squeeze(large_feat_map, axis=0)
+
+    mid_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_5G_SHAPE.key], tf.int32)
+    mid_feat_map = key_to_feature[MAI_RGB_B5_5G.key]
+    mid_feat_map = tf.reshape(mid_feat_map, mid_feat_map_shape)
+    mid_feat_map = tf.squeeze(mid_feat_map, axis=0)
+    
+    small_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_7C_SHAPE.key], tf.int32)
+    small_feat_map = key_to_feature[MAI_RGB_B5_7C.key]
+    small_feat_map = tf.reshape(small_feat_map, small_feat_map_shape)
+    small_feat_map = tf.squeeze(small_feat_map, axis=0)
+
+    return (
+      {
+        dataset_element.MAI_SMAPLE_ID: sample_id,
+        dataset_element.MAI_RAW_PATCH: raw_image,
+        dataset_element.MAI_DSLR_PATCH: rgb_ground_truth,
+      },
+      {
+        model_prediction.ENHANCE_RGB: rgb_ground_truth,
+        model_prediction.LARGE_FEAT: large_feat_map,
+        model_prediction.MID_FEAT: mid_feat_map,
+        model_prediction.SMALL_FEAT: small_feat_map,
       }
     )
 

@@ -19,6 +19,15 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["run_experiment", "configs/unet_05_curl.json"],
+        },
+        {
+            "name": "main test_cobi",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["test_cobi"],
         }
     ]
 }
