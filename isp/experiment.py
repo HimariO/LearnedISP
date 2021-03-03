@@ -194,7 +194,7 @@ class ExperimentBuilder:
     final_dataset = self.get_datasets(self.config.val_datasets)
     return final_dataset
   
-  def compilted_model(self):
+  def compilted_model(self, loss_weights=None):
     model = self.get_model()
     metrics_dict = self.get_metrics()
     losses_dict = self.get_losses()
@@ -207,6 +207,7 @@ class ExperimentBuilder:
       optimizer=adam,
       loss=losses_dict,
       metrics=metrics_dict,
+      loss_weights=loss_weights,
     )
     return model
 
@@ -510,3 +511,84 @@ class DebugExperiment:
         self.model.train_on_batch(x, y=y, reset_metrics=True)
       self.model.evaluate(self.val_dataset)
       logger.debug(f"epoch[{e}] mem: {process.memory_info().rss / 2**20: .2f}")
+
+
+class CtxLossExperiment(Experiment):
+
+  def __init__(self, config: ExperimentConfig) -> None:
+    loss_weights = {
+      io.model_prediction.ENHANCE_RGB: 0.1,
+      io.model_prediction.LARGE_FEAT: 0.2,
+      io.model_prediction.MID_FEAT: 0.25,
+      io.model_prediction.SMALL_FEAT: 0.3,
+    }
+    self.config = config
+    self.builder = ExperimentBuilder(config)
+    self.model = self.builder.compilted_model(loss_weights=loss_weights)
+    self.train_dataset = None
+    self.val_dataset = None
+  
+  @property
+  def callbacks(self):
+    model_dir = self.config.general['model_dir']
+
+    os.makedirs(model_dir, exist_ok=True)
+    log_dir = os.path.join(model_dir, 'logs')
+    tensorbaord = tf.keras.callbacks.TensorBoard(
+      log_dir=log_dir,
+      histogram_freq=1,
+      write_images=False,
+      write_graph=True)
+    
+    # NOTE: tf-nightly: tf.summary has no attirbute 'image'
+    write_image = callbacks.SaveValImage(log_dir)
+    
+    ckpt_path = os.path.join(model_dir, 'checkpoint')
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+      ckpt_path,
+      monitor='val_loss',
+      save_best_only=False,
+    )
+
+    stop_nan = tf.keras.callbacks.TerminateOnNaN()
+    return [
+      tensorbaord,
+      write_image,
+      checkpoint,
+      stop_nan
+    ]
+
+  def train(self, epoch=None, load_weight=None):
+    import os, psutil
+    from loguru import logger
+    process = psutil.Process(os.getpid())
+    logger.info(f"[{self.__class__.__name__}] Train")
+
+    epoch = self.config.general['epoch'] if epoch is None else epoch
+    model_dir = self.config.general['model_dir']
+    load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
+    
+    self.train_dataset = self.builder.get_train_dataset()
+    self.val_dataset = self.builder.get_val_dataset()
+
+    self.sanity_check(self.model, self.val_dataset)
+    if load_weight is not None:
+      logger.info(f'load_weight: {load_weight}')
+      self.model.load_weights(load_weight)
+    
+    callback_list = self.callbacks
+    
+    e_per_loop = 10
+    for e in range(0, epoch, e_per_loop):
+      self.model.fit(
+        self.train_dataset,
+        steps_per_epoch=500,
+        epochs=min(epoch, e + e_per_loop),
+        initial_epoch=e,
+        validation_data=self.val_dataset,
+        use_multiprocessing=False,
+        workers=1,
+        callbacks=callback_list,
+      )
+      tf.keras.backend.clear_session()
+      logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")

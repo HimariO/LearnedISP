@@ -800,20 +800,43 @@ class UNetCoBi(UNetGrid):
       num_rgb_layer=num_rgb_layer,
       norm_type=norm_type,
       **kwargs)
+    self.mode = mode
     
-    _B5 = tf.keras.applications.EfficientNetB5(
-      input_shape=[256, 256, 3], include_top=False)
-    block3e_add = _B5.layers[188].output  #(32, 32, 64)
-    block5g_add = _B5.layers[395].output  #(16, 16, 176)
-    block7c_add = _B5.layers[572].output  #(8, 8, 512)
-    self.B5 = tf.keras.Model(_B5.input,)
+    if self.mode == 'train':
+      _B5 = tf.keras.applications.EfficientNetB5(
+        input_shape=[256, 256, 3], include_top=False)
+      block3e_add = _B5.layers[188].output  #(32, 32, 64)
+      block5g_add = _B5.layers[395].output  #(16, 16, 176)
+      block7c_add = _B5.layers[572].output  #(8, 8, 512)
+      outputs = [block7c_add, block5g_add, block3e_add]
+      self.B5 = tf.keras.Model(_B5.input, outputs, trainable=False)
+      self.freeze_model(self.B5)
+  
+  def freeze_model(self, model: tf.keras.Model):
+    for l in model.layers:
+      l.trainable = False
+      if hasattr(l, 'layers'):
+        self.freeze_model(l)
   
   def call(self, inputs, training=None, mask=None):
     raw = inputs[dataset_element.MAI_RAW_PATCH]
     rgb = self._call(raw)
     
-    dslr_rgb = inputs[model_prediction.INTER_MID_PRED]
-    self.B5(dslr_rgb)
-    return {
-      model_prediction.ENHANCE_RGB: rgb
-    }
+    if self.mode == 'train':
+      rescale_rgb = tf.clip_by_value(rgb, 0, 1) * 255
+      dslr_rgb = inputs[dataset_element.MAI_DSLR_PATCH]
+      block7c_add, block5g_add, block3e_add = self.B5(rescale_rgb)
+      # block7c_add = tf.stop_gradient(block7c_add)
+      # block5g_add = tf.stop_gradient(block5g_add)
+      # block3e_add = tf.stop_gradient(block3e_add)
+      
+      return {
+        model_prediction.ENHANCE_RGB: rgb,
+        model_prediction.LARGE_FEAT: block3e_add,
+        model_prediction.MID_FEAT: block5g_add,
+        model_prediction.SMALL_FEAT: block7c_add,
+      }
+    else:
+      return {
+        model_prediction.ENHANCE_RGB: rgb,
+      }

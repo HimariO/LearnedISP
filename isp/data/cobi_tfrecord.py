@@ -27,7 +27,7 @@ def get_B5():
   block3e_add = _B5.layers[188].output  #(32, 32, 64)
   block5g_add = _B5.layers[395].output  #(16, 16, 176)
   block7c_add = _B5.layers[572].output  #(8, 8, 512)
-  B5 = tf.keras.Model(_B5.input, [block5g_add, block7c_add, block3e_add])
+  B5 = tf.keras.Model(_B5.input, [block7c_add, block5g_add, block3e_add])
   return B5
 
 

@@ -205,16 +205,20 @@ class CoBi(tf.keras.losses.Loss):
     """
     x: (B, H', W', Ph*Pw*C)
     """
-    B, H, W, N = tf.shape(x)
-    x_vec = tf.reshape(x, [B, -1, N])
-    y_vec = tf.reshape(y, [B, -1, N])
+    # B, H, W, N = tf.shape(x)
+    B = tf.shape(x)[0]
+    H = tf.shape(x)[1]
+    W = tf.shape(x)[2]
+    N = tf.shape(x)[3]
+    x_vec = tf.reshape(x, [B, -1, N], name="l2d_x_vec")
+    y_vec = tf.reshape(y, [B, -1, N], name="l2d_y_vec")
     x_s = tf.reduce_sum(x_vec ** 2, axis=2, keepdims=True)
     y_s = tf.reduce_sum(y_vec ** 2, axis=2, keepdims=True)
 
     A = y_vec @ tf.transpose(x_vec, perm=[0, 2, 1])
     dist = y_s - 2 * A + tf.transpose(x_s, perm=[0, 2, 1])
     dist = tf.transpose(dist, perm=[0, 2, 1])
-    dist = tf.reshape(dist, [B, H*W, H*W])
+    dist = tf.reshape(dist, [B, H*W, H*W], name="l2d_pair")
     dist = tf.nn.relu(dist)
 
     return dist
@@ -244,6 +248,22 @@ class CoBi(tf.keras.losses.Loss):
 
     return tf.concat([grid_x, grid_y], -1)
   
+  def rand_sample_tiled(self, tile_true, tile_pred, grid, ratio=0.25):
+    B = tf.shape(tile_pred)[0]
+    H = tf.shape(tile_pred)[1]
+    W = tf.shape(tile_pred)[2]
+    N = tf.shape(tile_pred)[3]
+    x_vec = tf.reshape(tile_pred, [B, -1, N])
+    y_vec = tf.reshape(tile_true, [B, -1, N])
+    grid_vec = tf.reshape(grid, [B, -1, N])
+
+    rand_val = tf.random.uniform([B, H, W, N], minval=0.0, maxval=1.0)
+    indies = tf.where(rand_val < ratio)
+    x_vec = tf.gather(x_vec, indies)
+    y_vec = tf.gather(y_vec, indies)
+    grid_vec = tf.gather(grid_vec, indies)
+    return x_vec, y_vec, grid_vec
+  
   def call(self, y_true, y_pred):
     """
     y_true: (B, H, W, C) large & pretrained CNN featuremap
@@ -271,6 +291,7 @@ class CoBi(tf.keras.losses.Loss):
     cx_sp = self.compute_cx(dist_tilde, 1.0)
 
     # feature loss
+    # import pdb; pdb.set_trace()
     dist_raw = self.compute_l2_distance(tile_true, tile_pred)
     dist_tilde = self.compute_relative_distance(dist_raw)
     cx_feat = self.compute_cx(dist_tilde, 1.0)

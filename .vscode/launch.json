@@ -12,6 +12,15 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "main run_ctx_experiment",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["run_ctx_experiment", "configs/unet_05_ctx.json"],
+        },
+        {
             "name": "main run_experiment",
             "type": "python",
             "request": "launch",

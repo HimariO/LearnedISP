@@ -106,7 +106,7 @@ MAI_RGB_B5_3E_SHAPE = TFExampleFeature(
     'mai/image_feature/block3e_add/shape',
     lambda value: tf.train.Feature(
         int64_list=tf.train.Int64List(value=value)),
-    tf.io.FixedLenFeature([2], tf.int64))
+    tf.io.FixedLenFeature([4], tf.int64))
 MAI_RGB_B5_5G = TFExampleFeature(
     'mai/image_feature/block5g_add/float_list',
     lambda value: tf.train.Feature(
@@ -116,7 +116,7 @@ MAI_RGB_B5_5G_SHAPE = TFExampleFeature(
     'mai/image_feature/block5g_add/shape',
     lambda value: tf.train.Feature(
         int64_list=tf.train.Int64List(value=value)),
-    tf.io.FixedLenFeature([2], tf.int64))
+    tf.io.FixedLenFeature([4], tf.int64))
 MAI_RGB_B5_7C = TFExampleFeature(
     'mai/image_feature/block7c_add/float_list',
     lambda value: tf.train.Feature(
@@ -126,7 +126,7 @@ MAI_RGB_B5_7C_SHAPE = TFExampleFeature(
     'mai/image_feature/block7c_add/shape',
     lambda value: tf.train.Feature(
         int64_list=tf.train.Int64List(value=value)),
-    tf.io.FixedLenFeature([2], tf.int64))
+    tf.io.FixedLenFeature([4], tf.int64))
 
 
 class Base(abc.ABC):
@@ -446,17 +446,17 @@ class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
     rgb_ground_truth.set_shape([None, None, 3])
 
     large_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_3E_SHAPE.key], tf.int32)
-    large_feat_map = key_to_feature[MAI_RGB_B5_3E.key]
+    large_feat_map = tf.sparse.to_dense(key_to_feature[MAI_RGB_B5_3E.key])
     large_feat_map = tf.reshape(large_feat_map, large_feat_map_shape)
     large_feat_map = tf.squeeze(large_feat_map, axis=0)
 
     mid_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_5G_SHAPE.key], tf.int32)
-    mid_feat_map = key_to_feature[MAI_RGB_B5_5G.key]
+    mid_feat_map = tf.sparse.to_dense(key_to_feature[MAI_RGB_B5_5G.key])
     mid_feat_map = tf.reshape(mid_feat_map, mid_feat_map_shape)
     mid_feat_map = tf.squeeze(mid_feat_map, axis=0)
     
     small_feat_map_shape = tf.cast(key_to_feature[MAI_RGB_B5_7C_SHAPE.key], tf.int32)
-    small_feat_map = key_to_feature[MAI_RGB_B5_7C.key]
+    small_feat_map = tf.sparse.to_dense(key_to_feature[MAI_RGB_B5_7C.key])
     small_feat_map = tf.reshape(small_feat_map, small_feat_map_shape)
     small_feat_map = tf.squeeze(small_feat_map, axis=0)
 
@@ -477,6 +477,21 @@ class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
 
 if __name__ == '__main__':
 
+  def check_b5():
+    train_set = MaiIspB5TFRecordDataset(
+        tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord_b5/mai_isp.*.tfrecord'
+      ).create_dataset(
+          batch_size=32,
+          num_readers=4,
+          num_parallel_calls=8
+      ).prefetch(tf.data.AUTOTUNE)
+
+    train_sample = []
+    for d, y in train_set:
+      for k, v in y.items():
+        print(k, v.shape)
+      break    
+  
   def check_split():
     train_set = MaiIspTFRecordDataset(
         tf_record_path_pattern='/home/ron/Downloads/LearnedISP/tfrecord/mai_isp.*.tfrecord'
@@ -554,7 +569,8 @@ if __name__ == '__main__':
     #   break
 
     # check_split()
-    test_memory_leak()
+    # test_memory_leak()
+    check_b5()
     
 
   

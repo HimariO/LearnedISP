@@ -15,6 +15,7 @@ from isp.model import io
 from isp.data import dataset
 from isp.model.unet import UNet, UNetResX2R, UNetRes
 from isp.model import layers
+from isp.model import unet
 
 
 def soft_gpu_meme_growth():
@@ -284,6 +285,12 @@ def run_3_stage_experiment(config_path, load_weight=None, skip_stage_1=False, sk
   exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1, skip_stage_2=skip_stage_2)
 
 
+def run_ctx_experiment(config_path, load_weight=None):
+  config = experiment.ExperimentConfig(config_path)
+  exp = experiment.CtxLossExperiment(config)
+  exp.train(load_weight=load_weight)
+
+
 def test_cobi():
   import torch
   from cobi_torch import contextual_bilateral_loss
@@ -319,6 +326,17 @@ def test_cobi():
     print(d.max())
 
 
+def test_model():
+  net = unet.UNetCoBi('train')
+  input_dict = {
+    io.dataset_element.MAI_RAW_PATCH:
+      np.ones([1, 128, 128, 4], dtype=np.float32),
+    io.model_prediction.INTER_MID_PRED:
+      np.ones([1, 256, 256, 3], dtype=np.float32),
+  }
+  net.predict(input_dict)
+  net.summary()
+
 
 if __name__ == '__main__':
 
@@ -334,7 +352,9 @@ if __name__ == '__main__':
       'run_experiment': run_experiment,
       'run_two_stage_experiment': run_two_stage_experiment,
       'run_3_stage_experiment': run_3_stage_experiment,
+      'run_ctx_experiment': run_ctx_experiment,
       'test_cobi': test_cobi,
+      'test_model': test_model,
     })
     # simple_train('./checkpoints/unet_res_bil_hyp_large')
 
