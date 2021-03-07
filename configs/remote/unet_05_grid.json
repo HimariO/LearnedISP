@@ -1,0 +1,81 @@
+{
+      "general": {
+        "learning_rate": 0.0001,
+        "model_dir": "checkpoints/unet_05_grid",
+        "log_dir": "",
+        "epoch": 50,
+        "scheduler": "cycle",
+        "batch_size": 64
+      },
+      "model": {
+        "type": "UNetGrid",
+        "init_param": {
+          "args": ["train"],
+          "kwargs": {
+              "alpha": 0.5
+          }
+        },
+        "pretrain_weight": null,
+        "input_shape": {
+          "train": [1, 128, 128, 4],
+          "inference": null
+        }
+      },
+      "losses": [
+        {
+          "type": "HypCirdSSIM",
+          "args": [],
+          "kwargs": {},
+          "target_output": "enhanced_rgb"
+        }
+      ],
+      "metrics": [
+        {
+          "type": "PSNR",
+          "args": [],
+          "kwargs": {},
+          "target_output": "enhanced_rgb"
+        },
+        {
+          "type": "CacheOutput",
+          "args": [],
+          "kwargs": {},
+          "target_output": "enhanced_rgb"
+        }
+      ],
+      "train_datasets": [
+        {
+          "type": "MaiIspTFRecordDataset",
+          "args": [],
+          "kwargs": {
+              "tf_record_path_pattern": "/home/ron_zhu/Disk3/tfrecord_b5/mai_isp.*.tfrecord"
+          }
+        }
+      ],
+      "val_datasets": [
+        {
+          "type": "MaiIspTFRecordDataset",
+          "args": [],
+          "kwargs": {
+              "tf_record_path_pattern": "/home/ron_zhu/Disk3/tfrecord_b5/mai_isp_val.*.tfrecord"
+          }
+        }
+      ],
+      "preprocessing": [
+        {
+          "type": "RandomFlip",
+          "args": [],
+          "kwargs": {
+              "top_down": false
+          }
+        },
+        {
+          "type": "RandomFlip",
+          "args": [],
+          "kwargs": {
+              "top_down": true
+          }
+        }
+      ],
+      "callback":[]
+    }

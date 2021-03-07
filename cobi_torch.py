@@ -184,8 +184,8 @@ def compute_l2_distance(x, y):
 
 def compute_meshgrid(shape):
     N, C, H, W = shape
-    rows = torch.arange(0, H, dtype=torch.float32) / (H + 1)
-    cols = torch.arange(0, W, dtype=torch.float32) / (W + 1)
+    rows = torch.arange(0, H, dtype=torch.float32) / (H)
+    cols = torch.arange(0, W, dtype=torch.float32) / (W)
 
     feature_grid = torch.meshgrid(rows, cols)
     feature_grid = torch.stack(feature_grid).unsqueeze(0)

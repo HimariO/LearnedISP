@@ -195,11 +195,23 @@ class CoBi(tf.keras.losses.Loss):
     return cx
   
   def compute_cos_distance(self, x, y):
-    B, H, W, N = tf.shape(x)
+    B = tf.shape(x)[0]
+    H = tf.shape(x)[1]
+    W = tf.shape(x)[2]
+    N = tf.shape(x)[3]
+    
     x_vec = tf.reshape(x, [B, -1, N])
     y_vec = tf.reshape(y, [B, -1, N])
-    cos_sim = tf.keras.losses.cosine_similarity(x_vec, y_vec)
-    raise NotImplementedError('Not done yet!')
+    
+    y_mu = tf.reduce_mean(y_vec, axis=[0, 1])
+    x_vec -= y_mu
+    y_vec -= y_mu
+    x_norm, _ = tf.linalg.normalize(x_vec, axis=-1, ord=2)
+    y_norm, _ = tf.linalg.normalize(y_vec, axis=-1, ord=2)
+
+    cos_sim = x_norm @ tf.transpose(y_norm, perm=[0, 2, 1])
+    # print(x.shape, cos_sim.shape)
+    return 1 - cos_sim
   
   def compute_l2_distance(self, x, y):
     """
@@ -292,7 +304,7 @@ class CoBi(tf.keras.losses.Loss):
 
     # feature loss
     # import pdb; pdb.set_trace()
-    dist_raw = self.compute_l2_distance(tile_true, tile_pred)
+    dist_raw = self.compute_cos_distance(tile_true, tile_pred)
     dist_tilde = self.compute_relative_distance(dist_raw)
     cx_feat = self.compute_cx(dist_tilde, 1.0)
 

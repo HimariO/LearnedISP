@@ -155,6 +155,7 @@ if __name__ == '__main__':
   #   256, 256, 1)
   # import pdb; pdb.set_trace()
 
-  create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord_b5')
+  # create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord_b5')
+  create_tfrecord('/home/ron_zhu/MAI21', '/home/ron_zhu/MAI21/tfrecord_b5')
 
   # fire.Fire(create_tfrecord)

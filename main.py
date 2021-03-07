@@ -1,9 +1,14 @@
 import os
+import glob
+
+from imageio.core.util import Image
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 import fire
 import numpy as np
 import tensorflow as tf
+import imageio
+from PIL import Image
 from loguru import logger
 from tensorflow.keras import callbacks
 
@@ -13,9 +18,12 @@ from isp import callbacks
 from isp import experiment
 from isp.model import io
 from isp.data import dataset
-from isp.model.unet import UNet, UNetResX2R, UNetRes
+from isp.model.unet import UNet, UNetGrid, UNetResX2R, UNetRes
 from isp.model import layers
 from isp.model import unet
+
+
+TEST_DIR = "/home/ron/Downloads/LearnedISP/MAI2021_LearnedISP_valid_raw"
 
 
 def soft_gpu_meme_growth():
@@ -149,7 +157,7 @@ def run_interpreter(inter, x):
   return lite_pred
 
 
-def tflite_convert(model_dir, output_path):
+def tflite_convert(model_dir, output_path, in_size=[544, 960]):
 
   def remove_weight_norm(model: tf.keras.Model):
     for layer in model.layers:
@@ -158,8 +166,8 @@ def tflite_convert(model_dir, output_path):
       elif hasattr(layer, 'layers'):
         remove_weight_norm(layer)
   
-  net = UNetRes('train', alpha=0.5, weight_norm=False)
-  payload = np.random.normal(size=[1, 128, 128, 4]).astype(np.float32)
+  net = UNetGrid('train', alpha=0.5)
+  payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
   net.predict({
     io.dataset_element.MAI_RAW_PATCH: payload
   })
@@ -168,10 +176,11 @@ def tflite_convert(model_dir, output_path):
   tf_pred = net.predict({
     io.dataset_element.MAI_RAW_PATCH: payload
   })
-  remove_weight_norm(net)
+  # remove_weight_norm(net)
   
-  x = tf.keras.Input(shape=[128, 128, 4], batch_size=1, dtype=tf.float32)
+  x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
   y = net._call(x)
+  y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
   functional_net = tf.keras.models.Model(x, y)
   # for z in functional_net.inputs:
   #   z.set_shape([320, 240, 4])
@@ -317,7 +326,7 @@ def test_cobi():
     C2 = contextual_bilateral_loss(
       torch.tensor(_A.numpy()).permute(0, 3, 1, 2),
       torch.tensor(_B.numpy()).permute(0, 3, 1, 2),
-      loss_type='l2'
+      loss_type='cosine'
     )
     C2 = C2.cpu().numpy()
     C1 = cobi(A, B)
@@ -338,24 +347,77 @@ def test_model():
   net.summary()
 
 
-if __name__ == '__main__':
+def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR):
+  """
+  python3 main.py predict_test_set configs/unet_05_ctx.json  \
+    checkpoints/unet_05_ctx_0305/checkpoint \
+    /home/ron/Downloads/LearnedISP/eval_out
+  
+  runtime per image [s] : 1.0 
+  CPU[1] / GPU[0] : 1
+  Extra Data [1] / No Extra Data [0] : 1
+  Other description : Solution
+  """
+  config = experiment.ExperimentConfig(config_path)
+  config.model['init_param']['args'] = ['eval']
+  builder = experiment.ExperimentBuilder(config)
+  model = builder.compilted_model()
+  model.load_weights(weight_path)
 
-  with logger.catch(reraise=False):
-    soft_gpu_meme_growth()
-    os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
+  os.makedirs(output_dir, exist_ok=True)
+  raw_imgs = glob.glob(os.path.join(test_dir, '*.png'))
+  logger.info(f'Find {len(raw_imgs)} eval raw images')
 
-    fire.Fire({
-      'simple_train': simple_train,
-      'tflite_convert': tflite_convert,
-      'eval_tflite_model': eval_tflite_model,
-      'eval_tf_model': eval_tf_model,
-      'run_experiment': run_experiment,
-      'run_two_stage_experiment': run_two_stage_experiment,
-      'run_3_stage_experiment': run_3_stage_experiment,
-      'run_ctx_experiment': run_ctx_experiment,
-      'test_cobi': test_cobi,
-      'test_model': test_model,
+  batched = []
+  batched_idx = []
+  B = 32
+  for i in range(0, len(raw_imgs), B):
+    print(f"{i} => {i + B}")
+    for j in range(i, min(i + B, len(raw_imgs))):
+      I = np.asarray(imageio.imread(raw_imgs[j]))
+      I = I.astype(np.float32) / 2**12
+      batched.append(I)
+      batched_idx.append(j)    
+    
+    batched = np.stack(batched)[..., None]
+    tf_raws = tf.nn.space_to_depth(batched, 2)
+
+    preds = model.predict({
+      io.dataset_element.MAI_RAW_PATCH: tf_raws,
     })
-    # simple_train('./checkpoints/unet_res_bil_hyp_large')
+    preds = preds[io.model_prediction.ENHANCE_RGB]
+    preds = tf.clip_by_value(preds, 0, 1)
+    preds = tf.cast(preds * 255, tf.uint8).numpy()
+    
+    for pred, img_id in zip(preds, batched_idx):
+      src_path = raw_imgs[img_id]
+      src_name = os.path.basename(src_path)  # *.png
+      dst_path = os.path.join(output_dir, src_name)
+      Image.fromarray(pred).save(dst_path)
+    batched = []
+    batched_idx = []
 
-    # board_check()
+
+if __name__ == '__main__':
+  soft_gpu_meme_growth()
+
+  with logger.catch(reraise=True):
+    with tf.device('/gpu:0'):
+      os.system("nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1'")  # make sure GPU is using maximument performance mode
+
+      fire.Fire({
+        'simple_train': simple_train,
+        'tflite_convert': tflite_convert,
+        'eval_tflite_model': eval_tflite_model,
+        'eval_tf_model': eval_tf_model,
+        'run_experiment': run_experiment,
+        'run_two_stage_experiment': run_two_stage_experiment,
+        'run_3_stage_experiment': run_3_stage_experiment,
+        'run_ctx_experiment': run_ctx_experiment,
+        'test_cobi': test_cobi,
+        'test_model': test_model,
+        'predict_test_set': predict_test_set,
+      })
+      # simple_train('./checkpoints/unet_res_bil_hyp_large')
+
+      # board_check()

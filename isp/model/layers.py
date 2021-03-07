@@ -172,10 +172,10 @@ class RepConv(tf.keras.Model):
   def _build(self):
     self.conv3 = tf.keras.layers.Conv2D(
       self.channel, 3, strides=self.strides, padding=self.padding, use_bias=False)
-    self.conv3_1 = tf.keras.layers.Conv2D(
-      self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
-    self.conv3_2 = tf.keras.layers.Conv2D(
-      self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    # self.conv3_1 = tf.keras.layers.Conv2D(
+    #   self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
+    # self.conv3_2 = tf.keras.layers.Conv2D(
+    #   self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
     
     self.conv1 = tf.keras.layers.Conv2D(
       self.channel, 1, strides=self.strides, padding=self.padding, use_bias=False)
@@ -214,7 +214,8 @@ class RepConv(tf.keras.Model):
     if self.inference:
       return self.rep_conv3(inputs)
     else:
-      x3 = self.bn3(self.conv3_2(self.conv3(self.conv3_1(inputs))))
+      # x3 = self.bn3(self.conv3_2(self.conv3(self.conv3_1(inputs))))
+      x3 = self.bn3(self.conv3(inputs))
       x1 = self.bn1(self.conv1(inputs))
       if int(inputs.shape[-1]) == self.channel:
         identity = self.bn_id(inputs)
@@ -454,6 +455,6 @@ class RepBilinearVGGBlocks(RepVGGBlocks):
     layers = [
         tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
     ]
-    layers += [RepConv(8, 3, padding='same', activation=tf.nn.relu, norm_type=norm_type) for _ in range(num_rgb_layer)]
+    layers += [RepConv(8, 3, padding='same', activation=lambda x: x, norm_type=norm_type) for _ in range(num_rgb_layer)]
     layers += [RepConv(3, 1, norm_type=norm_type)]
     return tf.keras.Sequential(layers=layers, name=name)

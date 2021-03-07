@@ -30,6 +30,20 @@
             "args": ["run_experiment", "configs/unet_05_curl.json"],
         },
         {
+            "name": "main predict_test_set",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "predict_test_set",
+                "configs/unet_05_ctx.json",
+                "checkpoints/unet_05_ctx_0305/checkpoint",
+                "/home/ron/Downloads/LearnedISP/eval_out"
+            ],
+        },
+        {
             "name": "main test_cobi",
             "type": "python",
             "request": "launch",

@@ -750,8 +750,8 @@ class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
     self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type)
     self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
     self.last_conv = self.res_conv_block(C(32), norm_type=norm_type)
-    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
-    # self.transform = self.rgb_upsample_block(num_rgb_layer=3)
+    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    self.transform = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
 
     self._first_kernel = None
   
@@ -785,7 +785,8 @@ class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
     x = self.last_conv(x)
     x = self.transform(x)
     
-    return tf.nn.depth_to_space(x, 2)
+    # return tf.nn.depth_to_space(x, 2)
+    return x
 
 
 @base.register_model
@@ -824,11 +825,8 @@ class UNetCoBi(UNetGrid):
     
     if self.mode == 'train':
       rescale_rgb = tf.clip_by_value(rgb, 0, 1) * 255
-      dslr_rgb = inputs[dataset_element.MAI_DSLR_PATCH]
+      # dslr_rgb = inputs[dataset_element.MAI_DSLR_PATCH]
       block7c_add, block5g_add, block3e_add = self.B5(rescale_rgb)
-      # block7c_add = tf.stop_gradient(block7c_add)
-      # block5g_add = tf.stop_gradient(block5g_add)
-      # block3e_add = tf.stop_gradient(block3e_add)
       
       return {
         model_prediction.ENHANCE_RGB: rgb,

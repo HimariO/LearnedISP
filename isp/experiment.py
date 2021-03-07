@@ -202,7 +202,7 @@ class ExperimentBuilder:
     logger.info(f"losses_dict: {losses_dict}")
     
     adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
-    adam = tfa.optimizers.SWA(adam, start_averaging=8000, average_period=2000)
+    # adam = tfa.optimizers.SWA(adam, start_averaging=8000, average_period=2000)
     model.compile(
       optimizer=adam,
       loss=losses_dict,
@@ -518,9 +518,9 @@ class CtxLossExperiment(Experiment):
   def __init__(self, config: ExperimentConfig) -> None:
     loss_weights = {
       io.model_prediction.ENHANCE_RGB: 0.1,
-      io.model_prediction.LARGE_FEAT: 0.2,
+      io.model_prediction.LARGE_FEAT: 0.3,
       io.model_prediction.MID_FEAT: 0.25,
-      io.model_prediction.SMALL_FEAT: 0.3,
+      io.model_prediction.SMALL_FEAT: 0.2,
     }
     self.config = config
     self.builder = ExperimentBuilder(config)
