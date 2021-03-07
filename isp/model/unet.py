@@ -9,7 +9,7 @@ from isp import model
 
 
 @base.register_model
-class UNet(base.RawBase, UNetBlocks):
+class UNet(base.RawBase, UNetBilinearBlocks):
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004, alpha=1.0, **kwargs):
     super().__init__(mode, *args, **kwargs)
@@ -44,16 +44,17 @@ class UNet(base.RawBase, UNetBlocks):
     x = x4 = self.block_x4(x)
     x = x8 = self.block_x8(x)
     x = self.block_ux8(x)
-    x = tf.concat([x, x4], axis=-1)
+    x = tf.keras.layers.Concatenate(axis=-1)([x, x4])
     x = self.block_ux4(x)
-    x = tf.concat([x, x2], axis=-1)
+    x = tf.keras.layers.Concatenate(axis=-1)([x, x2])
     x = self.block_ux2(x)
-    x = tf.concat([x, x1], axis=-1)
+    x = tf.keras.layers.Concatenate(axis=-1)([x, x1])
     x = self.block_ux1(x)
-    x = tf.concat([x, top], axis=-1)
+    x = tf.keras.layers.Concatenate(axis=-1)([x, top])
     x = self.last_block(x)
     x = self.transform(x)
-    return tf.nn.depth_to_space(x, 2)
+    x = tf.keras.layers.Lambda(lambda z: tf.nn.depth_to_space(z, 2))(x)
+    return x
 
 
 @base.register_model

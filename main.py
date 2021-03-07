@@ -196,13 +196,6 @@ def tflite_convert(model_dir, output_path, in_size=[544, 960]):
   # for z in functional_net.inputs:
   #   z.set_shape([320, 240, 4])
   functional_net.summary()
-
-  quantize_model = tfmot.quantization.keras.quantize_model
-  q_aware_model = quantize_model(functional_net)
-  q_aware_model.compile(optimizer='adam',
-                loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                metrics=['accuracy'])
-  q_aware_model.summary()
   
   converter = tf.lite.TFLiteConverter.from_saved_model(os.path.join(model_dir, 'saved'))
   # converter = tf.lite.TFLiteConverter.from_keras_model(functional_net)
@@ -433,6 +426,23 @@ def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR, de
 
 def export_pb(frozen_out_path, in_size=[544, 960]):
 
+  def quantize(functional_net):
+    def apply_quantization_to_dense(layer):
+      if isinstance(layer, tf.keras.layers.Conv2D):
+        return tfmot.quantization.keras.quantize_annotate_layer(layer)
+      return layer
+
+    # Use `tf.keras.models.clone_model` to apply `apply_quantization_to_dense` 
+    # to the layers of the model.
+    annotated_model = tf.keras.models.clone_model(
+        functional_net,
+        clone_function=apply_quantization_to_dense,
+    )
+
+    quant_aware_model = tfmot.quantization.keras.quantize_apply(annotated_model)
+    quant_aware_model.summary()
+    return quant_aware_model
+
   def get_keras_model():
     net = UNet('export', alpha=1.0)
     payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
@@ -459,6 +469,7 @@ def export_pb(frozen_out_path, in_size=[544, 960]):
   # name of the .pb file
   frozen_graph_filename = "frozen_graph"
   model = get_keras_model()
+  model = quantize(model)
   
   # Convert Keras model to ConcreteFunction
   full_model = tf.function(lambda x: model(x))

@@ -324,10 +324,10 @@ class UNetBilinearBlocks(UNetBlocks):
       tf.keras.layers.Conv2D(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
     
-    layers = [
-      WeightNormalization(l, data_init=True, inference=not WN)
-      for l in layers[:-1]
-    ] + [layers[-1]]
+    # layers = [
+    #   WeightNormalization(l, data_init=True, inference=not WN)
+    #   for l in layers[:-1]
+    # ] + [layers[-1]]
     return self.sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
