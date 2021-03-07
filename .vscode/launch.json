@@ -44,6 +44,19 @@
             ],
         },
         {
+            "name": "main tflite_convert",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "tflite_convert",
+                "./checkpoints/dev/",
+                "net.tflite"
+            ],
+        },
+        {
             "name": "main test_cobi",
             "type": "python",
             "request": "launch",

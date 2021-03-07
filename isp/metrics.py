@@ -49,7 +49,7 @@ class PSNR(tf.keras.metrics.Metric, PredictionMetricBase):
     self._psnr_counter = self.add_weight('psnr_counter', [], initializer='zeros')
   
   def update_state(self, y_true, y_pred, sample_weight=None):
-    # prediction = tf.clip_by_value(prediction, 0.0, 1.0)
+    y_pred = tf.clip_by_value(y_pred, 0.0, 1.0)
     psnr = tf.image.psnr(y_true, y_pred, 1.0)  # (batch_size, 1)
     
     self._psnr_counter.assign_add(tf.cast(tf.shape(y_true)[0], tf.float32))

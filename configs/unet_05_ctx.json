@@ -1,9 +1,9 @@
 {
       "general": {
-        "learning_rate": 0.0001,
+        "learning_rate": 0.00001,
         "model_dir": "checkpoints/unet_05_ctx",
         "log_dir": "",
-        "epoch": 100,
+        "epoch": 1000,
         "scheduler": "cycle",
         "batch_size": 32
       },

@@ -5,6 +5,10 @@ from .io import model_prediction, dataset_element
 
 class RawBase(tf.keras.models.Model):
 
+  def __init__(self, mode, *args, **kwargs):
+    super().__init__(mode, *args, **kwargs)
+    self.mode = mode
+
   def output_to_uint8_rgb(self, output_tensor):
     scaled_label = (output_tensor + 1) / 2 * 255
     scaled_label = tf.clip_by_value(scaled_label, 0, 255)

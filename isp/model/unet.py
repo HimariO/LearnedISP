@@ -16,7 +16,7 @@ class UNet(base.RawBase, UNetBlocks):
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
     C = lambda channel: max(int(channel * alpha), 16)
-    use_wn = True
+    use_wn = False
 
     self.block_x1 = self.downsample_block(C(32), WN=use_wn)
     self.block_x2 = self.downsample_block(C(64), WN=use_wn)

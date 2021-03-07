@@ -163,6 +163,9 @@ class HypCirdSSIM(tf.keras.losses.Loss):
 
   def call(self, y_true, y_pred):
     # import pdb; pdb.set_trace()
+    y_pred = tf.clip_by_value(y_pred, 0, 1)
+    y_true = tf.clip_by_value(y_true, 0, 1)
+
     c_delta = y_pred - y_true
     mse = tf.pow(c_delta, 2)
     max_mse = tf.reduce_mean(tf.reduce_max(mse, axis=-1))

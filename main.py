@@ -5,9 +5,10 @@ from imageio.core.util import Image
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 import fire
+import imageio
 import numpy as np
 import tensorflow as tf
-import imageio
+import tensorflow_model_optimization as tfmot
 from PIL import Image
 from loguru import logger
 from tensorflow.keras import callbacks
@@ -159,6 +160,13 @@ def run_interpreter(inter, x):
 
 def tflite_convert(model_dir, output_path, in_size=[544, 960]):
 
+  """
+  take the savedmodel and converted it with CLI tool from tf v1.5:
+  tflite_convert --output_file tf15.lite \
+    --saved_model_dir checkpoints/unet_05_grid/saved \
+    --output_arrays "StatefulPartitionedCall/StatefulPartitionedCall/model/tf.nn.depth_to_space/DepthToSpace"
+  """
+
   def remove_weight_norm(model: tf.keras.Model):
     for layer in model.layers:
       if isinstance(layer, layers.WeightNormalization):
@@ -166,12 +174,12 @@ def tflite_convert(model_dir, output_path, in_size=[544, 960]):
       elif hasattr(layer, 'layers'):
         remove_weight_norm(layer)
   
-  net = UNetGrid('train', alpha=0.5)
+  net = UNet('export', alpha=1.0)
   payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
   net.predict({
     io.dataset_element.MAI_RAW_PATCH: payload
   })
-  net.load_weights(model_dir)
+  # net.load_weights(model_dir)
   
   tf_pred = net.predict({
     io.dataset_element.MAI_RAW_PATCH: payload
@@ -180,17 +188,33 @@ def tflite_convert(model_dir, output_path, in_size=[544, 960]):
   
   x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
   y = net._call(x)
-  y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
+  # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
   functional_net = tf.keras.models.Model(x, y)
+  functional_net.predict(np.zeros([1, *in_size, 4]))
+  # import pdb; pdb.set_trace()
+  tf.saved_model.save(functional_net, os.path.join(model_dir, 'saved'))
   # for z in functional_net.inputs:
   #   z.set_shape([320, 240, 4])
+  functional_net.summary()
+
+  quantize_model = tfmot.quantization.keras.quantize_model
+  q_aware_model = quantize_model(functional_net)
+  q_aware_model.compile(optimizer='adam',
+                loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+                metrics=['accuracy'])
+  q_aware_model.summary()
   
-  converter = tf.lite.TFLiteConverter.from_keras_model(functional_net)
+  converter = tf.lite.TFLiteConverter.from_saved_model(os.path.join(model_dir, 'saved'))
+  # converter = tf.lite.TFLiteConverter.from_keras_model(functional_net)
   converter.optimizations = [tf.lite.Optimize.DEFAULT]
   tflite_model = converter.convert()
 
   with open(output_path, mode='wb') as f:
     f.write(tflite_model)
+  
+  """
+  Test run
+  """
   
   lite_net = tf.lite.Interpreter(model_path=output_path)
   lite_net.allocate_tensors()
@@ -347,7 +371,7 @@ def test_model():
   net.summary()
 
 
-def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR):
+def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR, device='/gpu:0'):
   """
   python3 main.py predict_test_set configs/unet_05_ctx.json  \
     checkpoints/unet_05_ctx_0305/checkpoint \
@@ -358,45 +382,111 @@ def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR):
   Extra Data [1] / No Extra Data [0] : 1
   Other description : Solution
   """
-  config = experiment.ExperimentConfig(config_path)
-  config.model['init_param']['args'] = ['eval']
-  builder = experiment.ExperimentBuilder(config)
-  model = builder.compilted_model()
-  model.load_weights(weight_path)
+  with tf.device(device):
+    config = experiment.ExperimentConfig(config_path)
+    config.model['init_param']['args'] = ['eval']
+    builder = experiment.ExperimentBuilder(config)
+    model = builder.compilted_model()
+    model.load_weights(weight_path)
 
-  os.makedirs(output_dir, exist_ok=True)
-  raw_imgs = glob.glob(os.path.join(test_dir, '*.png'))
-  logger.info(f'Find {len(raw_imgs)} eval raw images')
+    os.makedirs(output_dir, exist_ok=True)
+    raw_imgs = glob.glob(os.path.join(test_dir, '*.png'))
+    logger.info(f'Find {len(raw_imgs)} eval raw images')
 
-  batched = []
-  batched_idx = []
-  B = 32
-  for i in range(0, len(raw_imgs), B):
-    print(f"{i} => {i + B}")
-    for j in range(i, min(i + B, len(raw_imgs))):
-      I = np.asarray(imageio.imread(raw_imgs[j]))
-      I = I.astype(np.float32) / 2**12
-      batched.append(I)
-      batched_idx.append(j)    
-    
-    batched = np.stack(batched)[..., None]
-    tf_raws = tf.nn.space_to_depth(batched, 2)
-
-    preds = model.predict({
-      io.dataset_element.MAI_RAW_PATCH: tf_raws,
-    })
-    preds = preds[io.model_prediction.ENHANCE_RGB]
-    preds = tf.clip_by_value(preds, 0, 1)
-    preds = tf.cast(preds * 255, tf.uint8).numpy()
-    
-    for pred, img_id in zip(preds, batched_idx):
-      src_path = raw_imgs[img_id]
-      src_name = os.path.basename(src_path)  # *.png
-      dst_path = os.path.join(output_dir, src_name)
-      Image.fromarray(pred).save(dst_path)
     batched = []
     batched_idx = []
+    B = 32
+    raw_val_max = -1
+    raw_val_min = 2**20
+    for i in range(0, len(raw_imgs), B):
+      print(f"{i} => {i + B}")
+      for j in range(i, min(i + B, len(raw_imgs))):
+        I = np.asarray(imageio.imread(raw_imgs[j]))
+        I = I.astype(np.float32) - dataset.MaiIspTFRecordDataset.BLACK_LEVEL
+        I /= dataset.MaiIspTFRecordDataset.BIT_DEPTH - dataset.MaiIspTFRecordDataset.BLACK_LEVEL
+        raw_val_max = max(I.max(), raw_val_max)
+        raw_val_min = min(I.min(), raw_val_min)
+        batched.append(I)
+        batched_idx.append(j)    
+      
+      batched = np.stack(batched)[..., None]
+      tf_raws = tf.nn.space_to_depth(batched, 2)
 
+      preds = model.predict({
+        io.dataset_element.MAI_RAW_PATCH: tf_raws,
+      })
+      preds = preds[io.model_prediction.ENHANCE_RGB]
+      preds = tf.clip_by_value(preds, 0, 1)
+      preds = tf.cast(preds * 255, tf.uint8).numpy()
+      
+      for pred, img_id in zip(preds, batched_idx):
+        src_path = raw_imgs[img_id]
+        src_name = os.path.basename(src_path)  # *.png
+        dst_path = os.path.join(output_dir, src_name)
+        Image.fromarray(pred).save(dst_path)
+      batched = []
+      batched_idx = []
+    
+    print(f"raw_val_max: {raw_val_max}")
+    print(f"raw_val_min: {raw_val_min}")
+
+
+def export_pb(frozen_out_path, in_size=[544, 960]):
+
+  def get_keras_model():
+    net = UNet('export', alpha=1.0)
+    payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
+    net.predict({
+      io.dataset_element.MAI_RAW_PATCH: payload
+    })
+    # net.load_weights(model_dir)
+    
+    tf_pred = net.predict({
+      io.dataset_element.MAI_RAW_PATCH: payload
+    })
+    # remove_weight_norm(net)
+    
+    x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
+    y = net._call(x)
+    # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
+    functional_net = tf.keras.models.Model(x, y)
+    functional_net.predict(np.zeros([1, *in_size, 4]))
+    return functional_net
+
+  from tensorflow import keras
+  from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
+  #path of the directory where you want to save your model
+  # name of the .pb file
+  frozen_graph_filename = "frozen_graph"
+  model = get_keras_model()
+  
+  # Convert Keras model to ConcreteFunction
+  full_model = tf.function(lambda x: model(x))
+  full_model = full_model.get_concrete_function(
+      tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
+  # Get frozen ConcreteFunction
+  frozen_func = convert_variables_to_constants_v2(full_model)
+  frozen_func.graph.as_graph_def()
+  layers = [op.name for op in frozen_func.graph.get_operations()]
+  print("-" * 60)
+  print("Frozen model layers: ")
+  for layer in layers:
+      print(layer)
+  print("-" * 60)
+  print("Frozen model inputs: ")
+  print(frozen_func.inputs)
+  print("Frozen model outputs: ")
+  print(frozen_func.outputs)
+  # Save frozen graph to disk
+  tf.io.write_graph(graph_or_graph_def=frozen_func.graph,
+                    logdir=frozen_out_path,
+                    name=f"{frozen_graph_filename}.pb",
+                    as_text=False)
+  # Save its text representation
+  tf.io.write_graph(graph_or_graph_def=frozen_func.graph,
+                    logdir=frozen_out_path,
+                    name=f"{frozen_graph_filename}.pbtxt",
+                    as_text=True)
 
 if __name__ == '__main__':
   soft_gpu_meme_growth()
@@ -417,6 +507,7 @@ if __name__ == '__main__':
         'test_cobi': test_cobi,
         'test_model': test_model,
         'predict_test_set': predict_test_set,
+        'export_pb': export_pb,
       })
       # simple_train('./checkpoints/unet_res_bil_hyp_large')
 

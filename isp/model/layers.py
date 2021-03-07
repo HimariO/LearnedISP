@@ -227,14 +227,23 @@ class RepConv(tf.keras.Model):
 
 class UNetBlocks:
 
+  def sequential(self, layers=None, name=None):
+    if hasattr(self, 'mode'):
+      if self.mode == 'export':
+        return PySequential(layers=layers, name=name)
+      else:
+        return tf.keras.Sequential(layers=layers, name=name)
+    else:
+      return tf.keras.Sequential(layers=layers, name=name)
+
   def downsample_block(self, channel, name=None, WN=True):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    return self.sequential(layers=layers, name=name)
   
   def reverse_downsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -242,32 +251,32 @@ class UNetBlocks:
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    return self.sequential(layers=layers, name=name)
   
   def res_downsample_block(self, channel, name=None, WN=True):
     layers = [
       ResConvBlock(2, channel, weight_norm=WN),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = layers[:1] + [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[1:]]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = layers[:1] + [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[1:]]
+    return self.sequential(layers=layers, name=name)
   
   def reverse_res_downsample_block(self, channel, name=None, WN=True):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
       ResConvBlock(2, channel, weight_norm=WN),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + layers[-1:]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + layers[-1:]
+    return self.sequential(layers=layers, name=name)
   
   def conv_block(self, channel, name=None, WN=True):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
+    return self.sequential(layers=layers, name=name)
   
   def res_conv_block(self, channel, name=None, WN=True):
     return ResConvBlock(2, channel, weight_norm=WN)
@@ -279,8 +288,8 @@ class UNetBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + [layers[-1]]
-    return tf.keras.Sequential(layers=layers, name=name)
+    # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers[:-1]] + [layers[-1]]
+    return self.sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
     layer = tf.keras.layers.Conv2DTranspose(
@@ -293,7 +302,7 @@ class UNetBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=tf.nn.relu),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=0, name=None):
     layers = [
@@ -302,7 +311,7 @@ class UNetBlocks:
     ]
     layers += [tf.keras.layers.Conv2D(12, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
 
 class UNetBilinearBlocks(UNetBlocks):
@@ -319,14 +328,14 @@ class UNetBilinearBlocks(UNetBlocks):
       WeightNormalization(l, data_init=True, inference=not WN)
       for l in layers[:-1]
     ] + [layers[-1]]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, WN=True):
     layers = [
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    return tf.keras.Sequential(layers)
+    return self.sequential(layers=layers, name=name)
   
   def res_upsample_block(self, channel, name=None, WN=True):
     layers = [
@@ -334,7 +343,7 @@ class UNetBilinearBlocks(UNetBlocks):
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       tf.keras.layers.Conv2D(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=1, name=None):
     layers = [
@@ -342,10 +351,19 @@ class UNetBilinearBlocks(UNetBlocks):
     ]
     layers += [tf.keras.layers.Conv2D(8, 3, padding='same', activation=tf.nn.relu) for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
 
 class RepVGGBlocks:
+
+  def sequential(self, layers=None, name=None):
+    if hasattr(self, 'mode'):
+      if self.mode == 'export':
+        return PySequential(layers=layers, name=name)
+      else:
+        return tf.keras.Sequential(layers=layers, name=name)
+    else:
+      return tf.keras.Sequential(layers=layers, name=name)
 
   def downsample_block(self, channel, name=None, norm_type='wn'):
     layers = [
@@ -353,7 +371,7 @@ class RepVGGBlocks:
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
       RepConv(channel, 3, padding='same', strides=(2, 2), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def reverse_downsample_block(self, channel, name=None, norm_type='wn'):
     layers = [
@@ -361,7 +379,7 @@ class RepVGGBlocks:
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def res_downsample_block(self, channel, name=None, norm_type='wn'):
     layers = [
@@ -369,7 +387,7 @@ class RepVGGBlocks:
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def reverse_res_downsample_block(self, channel, name=None, norm_type='wn'):
     layers = [
@@ -377,14 +395,14 @@ class RepVGGBlocks:
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def conv_block(self, channel, name=None, norm_type='wn'):
     layers = [
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def res_conv_block(self, channel, name=None, norm_type='wn'):
     return self.conv_block(channel, name=name, norm_type=norm_type)
@@ -396,7 +414,7 @@ class RepVGGBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=None),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None):
     layer = tf.keras.layers.Conv2DTranspose(
@@ -409,7 +427,7 @@ class RepVGGBlocks:
       tf.keras.layers.Conv2DTranspose(
         channel // 2, 3, padding='same', strides=(2, 2), activation=None),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=0, name=None, norm_type='wn'):
     layers = [
@@ -421,7 +439,7 @@ class RepVGGBlocks:
       for _ in range(num_rgb_layer)
     ]
     layers += [RepConv(3, 1, padding='same', strides=(1, 1), activation=tf.nn.relu)]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
 
 class RepBilinearVGGBlocks(RepVGGBlocks):
@@ -433,14 +451,14 @@ class RepBilinearVGGBlocks(RepVGGBlocks):
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       RepConv(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
 
   def upsample_layer(self, channel, name=None, norm_type='wn'):
     layers = [
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       RepConv(channel, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers)
+    return self.sequential(layers=layers, name=name)
   
   def res_upsample_block(self, channel, name=None, norm_type='wn'):
     layers = [
@@ -449,7 +467,7 @@ class RepBilinearVGGBlocks(RepVGGBlocks):
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       RepConv(channel // 2, 3, padding='same', strides=(1, 1), activation=tf.nn.relu, norm_type=norm_type),
     ]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)
   
   def rgb_upsample_block(self, num_rgb_layer=1, name=None, norm_type='wn'):
     layers = [
@@ -457,4 +475,4 @@ class RepBilinearVGGBlocks(RepVGGBlocks):
     ]
     layers += [RepConv(8, 3, padding='same', activation=lambda x: x, norm_type=norm_type) for _ in range(num_rgb_layer)]
     layers += [RepConv(3, 1, norm_type=norm_type)]
-    return tf.keras.Sequential(layers=layers, name=name)
+    return self.sequential(layers=layers, name=name)

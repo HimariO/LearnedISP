@@ -325,6 +325,7 @@ class SIDTFRecordDataset(TFRecordDataset):
 class MaiIspTFRecordDataset(TFRecordDataset):
 
   BIT_DEPTH = 255.0 * 4 *4  # NOTE: raw image actually value from 144 ~ 4092
+  BLACK_LEVEL = 144
 
   def __init__(self, 
       tf_record_path_pattern=None,
@@ -357,7 +358,6 @@ class MaiIspTFRecordDataset(TFRecordDataset):
                             MAI_RGB_GROUND_TRUTH,]
         })
     
-    black_level = 144
     sample_id = tf.cast(key_to_feature[MAI_SAMPLE_ID.key], tf.int32)
     img_height = tf.cast(key_to_feature[MAI_RAW_INPUT_HEIGHT.key], tf.int32)
     img_width = tf.cast(key_to_feature[MAI_RAW_INPUT_WIDTH.key], tf.int32)
@@ -371,8 +371,8 @@ class MaiIspTFRecordDataset(TFRecordDataset):
     raw_image = tf.cast(raw_image, dtype=tf.float32)
     # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
     
-    raw_image = tf.maximum(raw_image - black_level, 0)
-    raw_image /= (self.BIT_DEPTH - black_level)
+    raw_image = tf.maximum(raw_image - self.BLACK_LEVEL, 0)
+    raw_image /= (self.BIT_DEPTH - self.BLACK_LEVEL)
     raw_image.set_shape([None, None, 4])
     # raw_image = tf.image.resize_with_crop_or_pad(raw_image, img_height, img_width)
     # raw_image = (raw_image - 0.5) * 2  # scale from [0, 1] to [-1, 1]
@@ -418,7 +418,6 @@ class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
                             MAI_RGB_B5_7C_SHAPE,]
         })
     
-    black_level = 144
     sample_id = tf.cast(key_to_feature[MAI_SAMPLE_ID.key], tf.int32)
     img_height = tf.cast(key_to_feature[MAI_RAW_INPUT_HEIGHT.key], tf.int32)
     img_width = tf.cast(key_to_feature[MAI_RAW_INPUT_WIDTH.key], tf.int32)
@@ -432,8 +431,8 @@ class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
     raw_image = tf.cast(raw_image, dtype=tf.float32)
     # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
     
-    raw_image = tf.maximum(raw_image - black_level, 0)
-    raw_image /= (self.BIT_DEPTH - black_level)
+    raw_image = tf.maximum(raw_image - self.BLACK_LEVEL, 0)
+    raw_image /= (self.BIT_DEPTH - self.BLACK_LEVEL)
     raw_image.set_shape([None, None, 4])
     # raw_image = tf.image.resize_with_crop_or_pad(raw_image, img_height, img_width)
     # raw_image = (raw_image - 0.5) * 2  # scale from [0, 1] to [-1, 1]
