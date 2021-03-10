@@ -791,6 +791,72 @@ class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
 
 
 @base.register_model
+class DeepUNetGrid(base.RawBase, RepBilinearVGGBlocks):
+  """
+  R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
+  """
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
+    super().__init__(mode, *args, **kwargs)
+
+    regularizer = tf.keras.regularizers.l2(weight_decay_scale)
+
+    def C(channel): return max(int(channel * alpha), 16)
+    self.coord = ConcatCoordinate()
+    self.block_x1 = self.conv_block(C(32), norm_type=norm_type)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), norm_type=norm_type, num_block=4)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), norm_type=norm_type, num_block=4)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), norm_type=norm_type, num_block=4)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), norm_type=norm_type, num_block=4)
+    self.up_x16_x8 = self.upsample_layer(C(256), norm_type=norm_type)
+    self.block_ux8 = self.res_conv_block(C(256), norm_type=norm_type, num_block=4)
+    self.up_x8_x4 = self.upsample_layer(C(128), norm_type=norm_type)
+    self.block_ux4 = self.res_conv_block(C(128), norm_type=norm_type, num_block=4)
+    self.up_x4_x2 = self.upsample_layer(C(64), norm_type=norm_type)
+    self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type, num_block=4)
+    self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
+    self.last_conv = self.res_conv_block(C(32), norm_type=norm_type, num_block=4)
+    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    self.transform = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+
+    self._first_kernel = None
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: rgb
+    }
+
+  def _call(self, x, training=None, mask=None):
+    top = x
+    # x = self.coord(x)
+    x = x1 = self.coord(self.block_x1(x))
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = tf.concat([x, x8], axis=-1)
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = tf.concat([x, x4], axis=-1)
+    x = self.block_ux4(x)
+    x = self.up_x4_x2(x)
+    x = tf.concat([x, x2], axis=-1)
+    x = self.block_ux2(x)
+    x = self.up_x2_x1(x)
+    x = tf.concat([x, x1], axis=-1)
+    x = self.last_conv(x)
+    x = self.transform(x)
+    
+    # return tf.nn.depth_to_space(x, 2)
+    return x
+
+
+@base.register_model
 class UNetCoBi(UNetGrid):
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004,

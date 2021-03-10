@@ -425,12 +425,20 @@ def predict_test_set(config_path, weight_path, output_dir, test_dir=TEST_DIR, de
 
 
 def export_pb(frozen_out_path, in_size=[544, 960]):
+  from tensorflow_model_optimization.python.core.quantization.keras.default_8bit import default_8bit_quantize_configs
+  NoOpQuantizeConfig = default_8bit_quantize_configs.NoOpQuantizeConfig
 
   def quantize(functional_net):
     def apply_quantization_to_dense(layer):
-      if isinstance(layer, tf.keras.layers.Conv2D):
+      no_quan_layers = (
+        tf.keras.layers.UpSampling2D,
+        tf.keras.layers.Concatenate,
+        tf.keras.layers.Lambda)
+      if isinstance(layer, no_quan_layers):
+        return tfmot.quantization.keras.quantize_annotate_layer(
+          layer, quantize_config=NoOpQuantizeConfig())
+      else:
         return tfmot.quantization.keras.quantize_annotate_layer(layer)
-      return layer
 
     # Use `tf.keras.models.clone_model` to apply `apply_quantization_to_dense` 
     # to the layers of the model.
@@ -439,7 +447,9 @@ def export_pb(frozen_out_path, in_size=[544, 960]):
         clone_function=apply_quantization_to_dense,
     )
 
-    quant_aware_model = tfmot.quantization.keras.quantize_apply(annotated_model)
+    # quant_aware_model = tfmot.quantization.keras.quantize_apply(annotated_model)
+    with tf.keras.utils.custom_object_scope({"NoOpQuantizeConfig": NoOpQuantizeConfig}):
+      quant_aware_model = tfmot.quantization.keras.quantize_model(annotated_model)
     quant_aware_model.summary()
     return quant_aware_model
 
@@ -469,14 +479,15 @@ def export_pb(frozen_out_path, in_size=[544, 960]):
   # name of the .pb file
   frozen_graph_filename = "frozen_graph"
   model = get_keras_model()
-  model = quantize(model)
+  # model = quantize(model)
   
   # Convert Keras model to ConcreteFunction
   full_model = tf.function(lambda x: model(x))
   full_model = full_model.get_concrete_function(
       tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
   # Get frozen ConcreteFunction
-  frozen_func = convert_variables_to_constants_v2(full_model)
+  # frozen_func = convert_variables_to_constants_v2(full_model)
+  frozen_func = full_model
   frozen_func.graph.as_graph_def()
   layers = [op.name for op in frozen_func.graph.get_operations()]
   print("-" * 60)
@@ -498,6 +509,47 @@ def export_pb(frozen_out_path, in_size=[544, 960]):
                     logdir=frozen_out_path,
                     name=f"{frozen_graph_filename}.pbtxt",
                     as_text=True)
+  
+  converter = tf.lite.TFLiteConverter.from_keras_model(model)
+  converter.optimizations = [tf.lite.Optimize.DEFAULT]
+  tflite_model = converter.convert()
+  with open("export_pb.tflite", mode='wb') as f:
+    f.write(tflite_model)
+
+
+def test_save_h5(in_size=[256, 256]):
+  
+  def get_keras_model():
+    net = UNet('export', alpha=1.0)
+    payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
+    net.predict({
+      io.dataset_element.MAI_RAW_PATCH: payload
+    })
+    # net.load_weights(model_dir)
+    
+    tf_pred = net.predict({
+      io.dataset_element.MAI_RAW_PATCH: payload
+    })
+    # remove_weight_norm(net)
+    
+    x = tf.keras.Input(
+      shape=[*in_size, 4], batch_size=1, dtype=tf.float32,
+      name=io.dataset_element.MAI_RAW_PATCH)
+    y = net._call(x)
+    # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
+    functional_net = tf.keras.models.Model(x, y)
+    functional_net.predict(np.zeros([1, *in_size, 4]))
+    return net, functional_net
+
+  _, model = get_keras_model()
+  tf.keras.models.save_model(model, 'test_h5.h5', save_format='h5')
+
+  payload = np.ones([1, *in_size, 4]).astype(np.float32)
+  pred = model.predict({
+    io.dataset_element.MAI_RAW_PATCH: payload
+  })
+  print(pred.mean(), pred.shape)
+
 
 if __name__ == '__main__':
   soft_gpu_meme_growth()
@@ -519,6 +571,7 @@ if __name__ == '__main__':
         'test_model': test_model,
         'predict_test_set': predict_test_set,
         'export_pb': export_pb,
+        'test_save_h5': test_save_h5,
       })
       # simple_train('./checkpoints/unet_res_bil_hyp_large')
 
