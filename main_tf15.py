@@ -91,7 +91,7 @@ def pb_to_tflite():
 
 
 def load_keras_h5(in_size=[256, 256]):
-  tf.compat.v1.disable_eager_execution()
+  # tf.compat.v1.disable_eager_execution()
   
   def get_keras_model():
     net = UNet('export', alpha=1.0)
@@ -119,7 +119,7 @@ def load_keras_h5(in_size=[256, 256]):
       tf.keras.backend.set_session(sess)
       # tf.keras.models.load_model('test_h5.h5')
       _, model = get_keras_model()
-      model.load_weights('test_h5.h5')
+      # model.load_weights('test_h5.h5')
 
       payload = np.ones([1, *in_size, 4]).astype(np.float32)
       pred = model.predict({
@@ -127,26 +127,32 @@ def load_keras_h5(in_size=[256, 256]):
         'input_1': payload,
       })
       print(pred.mean(), pred.shape)
+      graph_ops = [n for n in tf.get_default_graph().as_graph_def().node]
+      for op in graph_ops:
+        print(op.name)
+      print('-' * 100)
 
       graph = sess.graph
       tf.contrib.quantize.create_training_graph(input_graph=graph)
+      sess.run(tf.global_variables_initializer())
       
+      input_nodes = [model.input]
+      output_nodes = [model.output]
+      # frozen_graph_def = graph.as_graph_def()
+      frozen_graph_def = tf.graph_util.convert_variables_to_constants(
+          sess,
+          graph.as_graph_def(),
+          # output_nodes
+          ['lambda_1/DepthToSpace'],
+      )
+      # frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
+      #     frozen_graph_def,
+      #     input_nodes,
+      #     output_nodes,
+      #     tf.float32.as_datatype_enum
+      # )
       with open('h5_quan.pb', 'wb') as f:
         # import pdb; pdb.set_trace()
-        input_nodes = [model.input]
-        output_nodes = [model.output]
-        # frozen_graph_def = graph.as_graph_def()
-        frozen_graph_def = tf.graph_util.convert_variables_to_constants(
-            sess,
-            sess.graph_def,
-            output_nodes
-        )
-        frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
-            frozen_graph_def,
-            input_nodes,
-            output_nodes,
-            tf.float32.as_datatype_enum
-        )
         f.write(frozen_graph_def.SerializeToString())
 
 

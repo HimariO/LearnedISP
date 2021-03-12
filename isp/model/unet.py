@@ -725,7 +725,7 @@ class UNetRes3Stage(base.RawBase, UNetBilinearBlocks):
 
 
 @base.register_model
-class UNetGrid(base.RawBase, RepBilinearVGGBlocks):
+class UNetGrid(base.RawBase, UNetBilinearBlocks):
   """
   R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
   """

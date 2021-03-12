@@ -5,7 +5,10 @@ from collections import defaultdict
 
 import tensorflow as tf
 import tensorflow_addons as tfa
+import tensorflow_model_optimization as tfmot
 from loguru import logger
+from tensorflow_model_optimization.python.core.quantization.keras.default_8bit import default_8bit_quantize_configs
+
 from isp import metrics, losses, callbacks
 from isp import model
 from isp.model import base, io
@@ -210,6 +213,33 @@ class ExperimentBuilder:
       loss_weights=loss_weights,
     )
     return model
+  
+  def quantize_model(self, model=None):
+    NoOpQuantizeConfig = default_8bit_quantize_configs.NoOpQuantizeConfig
+
+    def apply_quantization(layer):
+      no_quan_layers = (
+        tf.keras.layers.UpSampling2D,
+        tf.keras.layers.Concatenate,
+        tf.keras.layers.Lambda)
+      if isinstance(layer, no_quan_layers):
+        return tfmot.quantization.keras.quantize_annotate_layer(
+          layer, quantize_config=NoOpQuantizeConfig())
+      elif isinstance(layer, tf.keras.Model):
+        layer = tf.keras.models.clone_model(
+          layer,
+          clone_function=apply_quantization)
+      else:
+        return tfmot.quantization.keras.quantize_annotate_layer(layer)
+
+    if model is None:
+      model = self.compilted_model()
+    annotated_model = tf.keras.models.clone_model(
+      model,
+      clone_function=apply_quantization)
+    with tf.keras.utils.custom_object_scope({"NoOpQuantizeConfig": NoOpQuantizeConfig}):
+      quant_aware_model = tfmot.quantization.keras.quantize_model(annotated_model)
+    return quant_aware_model
 
 
 class Experiment:
@@ -558,7 +588,29 @@ class CtxLossExperiment(Experiment):
       stop_nan
     ]
 
-  def train(self, epoch=None, load_weight=None):
+  def functionalize_model(self, model):
+    assert hasattr(model, '_call')
+    assert hasattr(model, 'B5')
+    shape_in = self.config.model['input_shape']['train']
+    model_in = tf.keras.layers.Input(shape=[None, None, shape_in[-1]])
+    pred_rgb = model._call(model_in)
+    rescale_rgb = tf.clip_by_value(pred_rgb, 0, 1) * 255
+    block7c_add, block5g_add, block3e_add = model.B5(rescale_rgb)
+
+    func_input_dict = {
+      io.dataset_element.MAI_RAW_PATCH: model_in,
+    }
+    func_output_dict = {
+      io.model_prediction.ENHANCE_RGB: pred_rgb,
+      io.model_prediction.LARGE_FEAT: block3e_add,
+      io.model_prediction.MID_FEAT: block5g_add,
+      io.model_prediction.SMALL_FEAT: block7c_add,
+    }
+    func_model = tf.keras.Model(func_input_dict, func_output_dict)
+    func_model.summary()
+    return func_model
+
+  def train(self, epoch=None, load_weight=None, quantize=False):
     import os, psutil
     from loguru import logger
     process = psutil.Process(os.getpid())
@@ -567,20 +619,24 @@ class CtxLossExperiment(Experiment):
     epoch = self.config.general['epoch'] if epoch is None else epoch
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
-    
-    self.train_dataset = self.builder.get_train_dataset()
-    self.val_dataset = self.builder.get_val_dataset()
 
-    self.sanity_check(self.model, self.val_dataset)
     if load_weight is not None:
       logger.info(f'load_weight: {load_weight}')
       self.model.load_weights(load_weight)
     
+    model = (
+      self.builder.quantize_model(self.functionalize_model(self.model)) 
+      if quantize
+      else self.model)
     callback_list = self.callbacks
+
+    self.val_dataset = self.builder.get_val_dataset()
+    self.sanity_check(self.model, self.val_dataset)
+    self.train_dataset = self.builder.get_train_dataset()
     
     e_per_loop = 10
     for e in range(0, epoch, e_per_loop):
-      self.model.fit(
+      model.fit(
         self.train_dataset,
         steps_per_epoch=500,
         epochs=min(epoch, e + e_per_loop),

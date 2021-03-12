@@ -311,10 +311,14 @@ def run_3_stage_experiment(config_path, load_weight=None, skip_stage_1=False, sk
   exp.train(load_weight=load_weight, skip_stage_1=skip_stage_1, skip_stage_2=skip_stage_2)
 
 
-def run_ctx_experiment(config_path, load_weight=None):
+def run_ctx_experiment(config_path, load_weight=None, quantize=False):
+  logger.info(f"[run_ctx_experiment] config_path: {config_path}")
+  logger.info(f"[run_ctx_experiment] load_weight: {load_weight}")
+  logger.info(f"[run_ctx_experiment] quantize: {quantize}")
+
   config = experiment.ExperimentConfig(config_path)
   exp = experiment.CtxLossExperiment(config)
-  exp.train(load_weight=load_weight)
+  exp.train(load_weight=load_weight, quantize=quantize)
 
 
 def test_cobi():
