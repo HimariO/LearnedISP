@@ -321,6 +321,16 @@ def run_ctx_experiment(config_path, load_weight=None, quantize=False):
   exp.train(load_weight=load_weight, quantize=quantize)
 
 
+def run_debug_experiment(config_path, load_weight=None, quantize=False):
+  logger.info(f"[run_ctx_experiment] config_path: {config_path}")
+  logger.info(f"[run_ctx_experiment] load_weight: {load_weight}")
+  # logger.info(f"[run_ctx_experiment] quantize: {quantize}")
+
+  config = experiment.ExperimentConfig(config_path)
+  exp = experiment.DebugExperiment(config)
+  exp.train(load_weight=load_weight)
+
+
 def test_cobi():
   import torch
   from cobi_torch import contextual_bilateral_loss
@@ -571,6 +581,7 @@ if __name__ == '__main__':
         'run_two_stage_experiment': run_two_stage_experiment,
         'run_3_stage_experiment': run_3_stage_experiment,
         'run_ctx_experiment': run_ctx_experiment,
+        'run_debug_experiment': run_debug_experiment,
         'test_cobi': test_cobi,
         'test_model': test_model,
         'predict_test_set': predict_test_set,

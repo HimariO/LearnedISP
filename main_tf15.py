@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 # import tensorflow.compat.v1 as tf
 
+from loguru import logger
 from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import optimize_for_inference_lib
 
@@ -92,6 +93,7 @@ def pb_to_tflite():
 
 def load_keras_h5(in_size=[256, 256]):
   # tf.compat.v1.disable_eager_execution()
+  tf.enable_control_flow_v2()
   
   def get_keras_model():
     net = UNet('export', alpha=1.0)
@@ -133,27 +135,38 @@ def load_keras_h5(in_size=[256, 256]):
       print('-' * 100)
 
       graph = sess.graph
-      tf.contrib.quantize.create_training_graph(input_graph=graph)
+      # tf.contrib.quantize.create_training_graph(input_graph=graph)
+      tf.contrib.quantize.create_eval_graph(input_graph=graph)
       sess.run(tf.global_variables_initializer())
       
-      input_nodes = [model.input]
-      output_nodes = [model.output]
-      # frozen_graph_def = graph.as_graph_def()
+      input_nodes = [model.input.name.split(':')[0]]
+      output_nodes = [model.output.name.split(':')[0]]
+      
+      frozen_graph_def = graph.as_graph_def()
       frozen_graph_def = tf.graph_util.convert_variables_to_constants(
           sess,
           graph.as_graph_def(),
-          # output_nodes
-          ['lambda_1/DepthToSpace'],
+          output_nodes
+          # ['lambda_1/DepthToSpace'],
       )
-      # frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
-      #     frozen_graph_def,
-      #     input_nodes,
-      #     output_nodes,
-      #     tf.float32.as_datatype_enum
-      # )
+      frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
+          frozen_graph_def,
+          input_nodes,
+          output_nodes,
+          tf.float32.as_datatype_enum
+      )
       with open('h5_quan.pb', 'wb') as f:
         # import pdb; pdb.set_trace()
         f.write(frozen_graph_def.SerializeToString())
+      
+      # converter = tf.lite.TFLiteConverter.from_session(sess, [model.input], [model.output])
+      converter = tf.lite.TFLiteConverter.from_frozen_graph(
+        'h5_quan.pb', input_arrays=input_nodes, output_arrays=output_nodes)
+      converter.inference_input_type = tf.uint8
+      # converter.inference_type = tf.uint8
+      converter.quantized_input_stats = {"input_1": (0, 255)}
+      tflite_model = converter.convert()
+      open("converted_model.tflite", "wb").write(tflite_model)
 
 
 if __name__ == "__main__":
@@ -164,4 +177,5 @@ if __name__ == "__main__":
   #   ['serving_default_input_1:0'],
   #   ['StatefulPartitionedCall:0'],
   # )
-  load_keras_h5()
+  with logger.catch():
+    load_keras_h5()

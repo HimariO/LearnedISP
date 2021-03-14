@@ -11,7 +11,7 @@ from tensorflow_model_optimization.python.core.quantization.keras.default_8bit i
 
 from isp import metrics, losses, callbacks
 from isp import model
-from isp.model import base, io
+from isp.model import base, io, layers
 from isp.data import dataset, preprocess
 
 
@@ -197,8 +197,8 @@ class ExperimentBuilder:
     final_dataset = self.get_datasets(self.config.val_datasets)
     return final_dataset
   
-  def compilted_model(self, loss_weights=None):
-    model = self.get_model()
+  def compilted_model(self, loss_weights=None, model=None):
+    model = self.get_model() if model is None else model
     metrics_dict = self.get_metrics()
     losses_dict = self.get_losses()
     logger.info(f"metrics_dict: {metrics_dict}")
@@ -225,10 +225,10 @@ class ExperimentBuilder:
       if isinstance(layer, no_quan_layers):
         return tfmot.quantization.keras.quantize_annotate_layer(
           layer, quantize_config=NoOpQuantizeConfig())
-      elif isinstance(layer, tf.keras.Model):
-        layer = tf.keras.models.clone_model(
-          layer,
-          clone_function=apply_quantization)
+      # elif isinstance(layer, tf.keras.Model):
+      #   layer = tf.keras.models.clone_model(
+      #     layer,
+      #     clone_function=apply_quantization)
       else:
         return tfmot.quantization.keras.quantize_annotate_layer(layer)
 
@@ -237,7 +237,11 @@ class ExperimentBuilder:
     annotated_model = tf.keras.models.clone_model(
       model,
       clone_function=apply_quantization)
-    with tf.keras.utils.custom_object_scope({"NoOpQuantizeConfig": NoOpQuantizeConfig}):
+    custom_objs = {
+      "NoOpQuantizeConfig": NoOpQuantizeConfig,
+      "ConcatCoordinate": layers.ConcatCoordinate,
+    }
+    with tf.keras.utils.custom_object_scope(custom_objs):
       quant_aware_model = tfmot.quantization.keras.quantize_model(annotated_model)
     return quant_aware_model
 
@@ -281,13 +285,14 @@ class Experiment:
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
       ckpt_path,
       monitor='val_loss',
-      save_best_only=False,
+      save_best_only=True,
+      save_weights_only=True,
     )
 
     stop_nan = tf.keras.callbacks.TerminateOnNaN()
     return [
       tensorbaord,
-      write_image,
+      # write_image,
       checkpoint,
       stop_nan
     ]
@@ -302,14 +307,17 @@ class Experiment:
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
     
-    self.train_dataset = self.builder.get_train_dataset()
-    self.val_dataset = self.builder.get_val_dataset()
-
-    self.sanity_check(self.model, self.val_dataset)
     if load_weight is not None:
       logger.info(f'load_weight: {load_weight}')
-      self.model.load_weights(load_weight)
+      if os.path.exists(os.path.join(load_weight, 'saved_model.pb')):
+        # TODO: May be I should add a load_model options?
+        self.model = tf.keras.models.load_model(load_weight)
+      else:
+        self.model.load_weights(load_weight)
     
+    self.train_dataset = self.builder.get_train_dataset()
+    self.val_dataset = self.builder.get_val_dataset()
+    self.sanity_check(self.model, self.val_dataset)
     callback_list = self.callbacks
     
     e_per_loop = 10
@@ -510,7 +518,7 @@ class ThreeStageExperiment(Experiment):
       )
 
 
-class DebugExperiment:
+class DebugExperiment(Experiment):
   
   def train(self, epoch=None, load_weight=None):
     import os, psutil
@@ -529,6 +537,8 @@ class DebugExperiment:
       self.sanity_check(self.model, self.val_dataset)
       self.model.load_weights(load_weight)
     
+    quan_model = self.builder.quantize_model(self.model)
+    self.model = self.builder.compilted_model(model=quan_model)
     callback_list = self.callbacks
     
     e_per_loop = 10
@@ -589,6 +599,9 @@ class CtxLossExperiment(Experiment):
     ]
 
   def functionalize_model(self, model):
+    if "functional" in self.config.model['type']:
+      return model
+    
     assert hasattr(model, '_call')
     assert hasattr(model, 'B5')
     shape_in = self.config.model['input_shape']['train']

@@ -18,15 +18,15 @@ class UNet(base.RawBase, UNetBilinearBlocks):
     C = lambda channel: max(int(channel * alpha), 16)
     use_wn = False
 
-    self.block_x1 = self.downsample_block(C(32), WN=use_wn)
-    self.block_x2 = self.downsample_block(C(64), WN=use_wn)
-    self.block_x4 = self.downsample_block(C(128), WN=use_wn)
-    self.block_x8 = self.downsample_block(C(256), WN=use_wn)
-    self.block_ux8 = self.upsample_block(C(512), WN=use_wn)
-    self.block_ux4 = self.upsample_block(C(256), WN=use_wn)
-    self.block_ux2 = self.upsample_block(C(128), WN=use_wn)
-    self.block_ux1 = self.upsample_block(C(64), WN=use_wn)
-    self.last_block = self.conv_block(C(32), WN=use_wn)
+    self.block_x1 = self.downsample_block(C(32))
+    self.block_x2 = self.downsample_block(C(64))
+    self.block_x4 = self.downsample_block(C(128))
+    self.block_x8 = self.downsample_block(C(256))
+    self.block_ux8 = self.upsample_block(C(512))
+    self.block_ux4 = self.upsample_block(C(256))
+    self.block_ux2 = self.upsample_block(C(128))
+    self.block_ux1 = self.upsample_block(C(64))
+    self.last_block = self.conv_block(C(32))
     self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
   
   def call(self, inputs, training=None, mask=None):
@@ -55,6 +55,24 @@ class UNet(base.RawBase, UNetBilinearBlocks):
     x = self.transform(x)
     x = tf.keras.layers.Lambda(lambda z: tf.nn.depth_to_space(z, 2))(x)
     return x
+
+
+@base.register_model
+def functional_unet(alpha=0.5, input_shape=[128, 128, 4]):
+  unet = UNet('functional', alpha=0.5)
+  x_layer = tf.keras.Input(shape=input_shape)
+  y1 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+  }
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model
 
 
 @base.register_model
@@ -725,7 +743,7 @@ class UNetRes3Stage(base.RawBase, UNetBilinearBlocks):
 
 
 @base.register_model
-class UNetGrid(base.RawBase, UNetBilinearBlocks):
+class UNetGrid(RepBilinearVGGBlocks, base.RawBase):
   """
   R stand for reverse downsample block, which allow upsample block to concat features from deeper layers
   """
@@ -751,8 +769,19 @@ class UNetGrid(base.RawBase, UNetBilinearBlocks):
     self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type)
     self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
     self.last_conv = self.res_conv_block(C(32), norm_type=norm_type)
+
+    # NOTE: Auto generated tf lambda layer will trigger weird clone functional model error,
+    #       so build model with builtin layer instead!
+    self.cat8 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat4 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat2 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat1 = tf.keras.layers.Concatenate(axis=-1)
+
     # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
-    self.transform = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    # self.transform = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_high = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_low = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_add = tf.keras.layers.Add()
 
     self._first_kernel = None
   
@@ -767,27 +796,48 @@ class UNetGrid(base.RawBase, UNetBilinearBlocks):
   def _call(self, x, training=None, mask=None):
     top = x
     # x = self.coord(x)
-    x = x1 = self.coord(self.block_x1(x))
+    # x = x1 = self.coord(self.block_x1(x))
+    x = x1 = self.block_x1(x)
     x = x2 = self.block_x2(x)
     x = x4 = self.block_x4(x)
     x = x8 = self.block_x8(x)
     x = self.block_x16(x)
     x = self.up_x16_x8(x)
-    x = tf.concat([x, x8], axis=-1)
+    x = self.cat8([x, x8])
     x = self.block_ux8(x)
     x = self.up_x8_x4(x)
-    x = tf.concat([x, x4], axis=-1)
+    x = self.cat4([x, x4])
     x = self.block_ux4(x)
     x = self.up_x4_x2(x)
-    x = tf.concat([x, x2], axis=-1)
+    x = self.cat2([x, x2])
     x = self.block_ux2(x)
     x = self.up_x2_x1(x)
-    x = tf.concat([x, x1], axis=-1)
+    x = self.cat1([x, x1])
     x = self.last_conv(x)
-    x = self.transform(x)
+    x_high = self.transform_high(x)
+    x_low = self.transform_low(x)
+    x = self.transform_add([x_low, x_high])
     
     # return tf.nn.depth_to_space(x, 2)
     return x
+
+
+@base.register_model
+def functional_unet_grid(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
+  unet = UNetGrid('functional', alpha=0.5)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size)
+  y1 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+  }
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model
 
 
 @base.register_model

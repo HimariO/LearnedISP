@@ -30,6 +30,15 @@
             "args": ["run_experiment", "configs/unet_05_curl.json"],
         },
         {
+            "name": "main run_debug_experiment",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["run_debug_experiment", "configs/func_unet_05_grid.json"],
+        },
+        {
             "name": "main predict_test_set",
             "type": "python",
             "request": "launch",

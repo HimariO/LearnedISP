@@ -5,6 +5,7 @@ from tensorflow.python.keras.backend import dtype
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 import fire
+import torch
 import numpy as np
 import tensorflow as tf
 from loguru import logger
@@ -15,7 +16,7 @@ from isp.model import io
 from isp import metrics
 from isp import losses
 from isp.data import dataset
-from isp.model.unet import UNet, UNetResX2R, UNetRes
+from isp.model.unet import UNet, UNetResX2R, UNetRes, UNetGrid
 from isp.model import unet
 from isp.model import layers
 from isp import experiment
@@ -255,3 +256,84 @@ for x, y in val_set:
   plt.show()
   break
 # %%
+
+conv_a = tf.keras.layers.Conv2D(8, 3)
+conv_b = tf.keras.layers.Conv2D(8, 3)
+print(conv_a.get_weights())
+
+data = np.ones([1, 16, 16, 3])
+da = conv_a(data)
+db = conv_b(data)
+print(np.abs(da -  db).mean())
+
+conv_b.kernel = conv_a.kernel
+da = conv_a(data)
+db = conv_b(data)
+print(np.abs(da -  db).mean())
+
+I = tf.keras.layers.Input(shape=[16, 16, 3])
+conv_c = tf.keras.layers.Conv2D(8, 3)
+conv_c(I)
+print(conv_c.variables)
+
+# %%
+
+class Module(tf.keras.Model):
+  M_C = 0
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    M_C = Module.M_C
+    self.fc1 = tf.keras.layers.Dense(10, name=f"moduel_{M_C}_fc1")
+    self.add = tf.keras.layers.Add(name=f"moduel_{M_C}_add")
+    Module.M_C += 1 
+  
+  def call(self, x):
+    return self._call(x)
+  
+  def _call(self, x):
+    return self.add([self.fc1(x), x])
+
+class Base(tf.keras.Model):
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.fc1 = tf.keras.layers.Dense(10)
+    self.m = Module()
+  
+  def call(self, x):
+    return self._call(x)
+  
+  def _call(self, x):
+    h = self.fc1(x)
+    h = self.m(h)
+    return h
+  
+  def _call2(self, x):
+    h = self.fc1(x)
+    h = self.m._call(h)
+    return h
+
+Module()
+Module()
+base = Base()
+
+I = tf.keras.layers.Input([16, 16, 3])
+Y = base._call2(I)
+base_faltten = tf.keras.Model(I, Y)
+
+base_faltten.summary()
+# base.summary()
+# %%
+
+net = unet.functional_unet_grid(mode='functional', alpha=0.5, batch_size=1)
+net.summary()
+
+net.predict(np.ones([1, 128, 128,4]))
+
+lite_conv = tf.lite.TFLiteConverter.from_keras_model(net)
+with open('check_func.tflite', mode='wb') as f:
+  f.write(lite_conv.convert())
+# %%
+
+
