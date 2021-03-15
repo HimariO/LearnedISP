@@ -920,7 +920,7 @@ class UNetCoBi(UNetGrid):
       **kwargs)
     self.mode = mode
     
-    if self.mode == 'train':
+    if self.mode == 'train' or self.mode == 'functional':
       _B5 = tf.keras.applications.EfficientNetB5(
         input_shape=[256, 256, 3], include_top=False)
       block3e_add = _B5.layers[188].output  #(32, 32, 64)
@@ -955,3 +955,30 @@ class UNetCoBi(UNetGrid):
       return {
         model_prediction.ENHANCE_RGB: rgb,
       }
+
+
+@base.register_model
+def functional_unet_cobi(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
+  unet = UNetCoBi('functional', alpha=0.5)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size)
+  y1 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  
+  rescale_rgb = tf.keras.layers.Lambda(lambda rgb: tf.clip_by_value(rgb, 0, 1) * 255)
+  block7c_add, block5g_add, block3e_add = unet.B5(rescale_rgb(y1))
+  block7c_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.SMALL_FEAT)(block7c_add)
+  block5g_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.MID_FEAT)(block5g_add)
+  block3e_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.LARGE_FEAT)(block3e_add)
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+    model_prediction.LARGE_FEAT: block3e_add,
+    model_prediction.MID_FEAT: block5g_add,
+    model_prediction.SMALL_FEAT: block7c_add,
+  }
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model

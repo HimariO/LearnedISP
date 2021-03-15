@@ -587,7 +587,8 @@ class CtxLossExperiment(Experiment):
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
       ckpt_path,
       monitor='val_loss',
-      save_best_only=False,
+      save_best_only=True,
+      save_weights_only=True,
     )
 
     stop_nan = tf.keras.callbacks.TerminateOnNaN()
@@ -635,7 +636,11 @@ class CtxLossExperiment(Experiment):
 
     if load_weight is not None:
       logger.info(f'load_weight: {load_weight}')
-      self.model.load_weights(load_weight)
+      if os.path.exists(os.path.join(load_weight, 'saved_model.pb')):
+        # TODO: May be I should add a load_model options?
+        self.model = tf.keras.models.load_model(load_weight)
+      else:
+        self.model.load_weights(load_weight)
     
     model = (
       self.builder.quantize_model(self.functionalize_model(self.model)) 
