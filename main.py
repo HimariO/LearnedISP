@@ -568,6 +568,10 @@ def test_save_h5(in_size=[256, 256]):
 
 def check_gpu():
   print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+  from isp.model.efficient_net import EfficientNetB5
+  B5 = EfficientNetB5(input_shape=[256, 256, 3], include_top=False)
+  B5.summary()
+  
 
 
 if __name__ == '__main__':

@@ -327,6 +327,7 @@ class Experiment:
         callback_list = self.callbacks
         
         e_per_loop = 10
+        validation_steps = 2300 // self.config.general['batch_size']
         for e in range(0, epoch, e_per_loop):
           self.model.fit(
             self.train_dataset,
@@ -334,6 +335,7 @@ class Experiment:
             epochs=min(epoch, e + e_per_loop),
             initial_epoch=e,
             validation_data=self.val_dataset,
+            validation_steps=validation_steps,
             use_multiprocessing=False,
             workers=1,
             callbacks=callback_list,

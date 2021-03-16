@@ -1,8 +1,14 @@
+import functools
+
 import numpy as np
 import tensorflow as tf
 from loguru import logger
 from tensorflow import keras
-from tensorflow.keras.layers import BatchNormalization
+# from tensorflow.keras.layers import BatchNormalization
+
+BatchNormalization = functools.partial(
+  tf.keras.layers.Lambda,
+  lambda x: tf.contrib.slim.batch_norm(x, is_training=True))
 
 try:
   import tensorflow_addons as tfa
@@ -388,13 +394,13 @@ class UNetBlocks:
   def downsample_block(self, channel, name=None, norm_type='bn'):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None, use_bias=False),
-      tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=False)),
+      tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=True)),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None, use_bias=False),
-      BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None, use_bias=False),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
     ]
     # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
@@ -403,13 +409,13 @@ class UNetBlocks:
   def reverse_downsample_block(self, channel, name=None, norm_type='bn'):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(2, 2), activation=None, use_bias=False),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None, use_bias=False),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None, use_bias=False),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
     ]
     return self.sequential(layers=layers, name=name)
@@ -433,10 +439,10 @@ class UNetBlocks:
   def conv_block(self, channel, name=None, norm_type='bn'):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
     ]
     # layers = [WeightNormalization(l, data_init=True, inference=not WN) for l in layers]
@@ -448,10 +454,10 @@ class UNetBlocks:
   def upsample_block(self, channel, name=None, norm_type='bn'):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2DTranspose(channel // 2, 3, padding='same', strides=(2, 2), activation=None),
     ]
@@ -484,10 +490,10 @@ class UNetBilinearBlocks(UNetBlocks):
   def upsample_block(self, channel, name=None, norm_type='bn'):
     layers = [
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1)),
-      # BatchNormalization(fused=False),
+      BatchNormalization(),
       tf.keras.layers.Activation(UNetBlocks.act_func),
       tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
       tf.keras.layers.Conv2D(channel // 2, 3, padding='same', strides=(1, 1)),
@@ -521,7 +527,7 @@ class UNetBilinearBlocks(UNetBlocks):
     for _ in range(num_rgb_layer):
       layers += [
         tf.keras.layers.Conv2D(8, 3, padding='same'),
-        # BatchNormalization(fused=False),
+        BatchNormalization(),
         tf.keras.layers.Activation(UNetBlocks.act_func),
       ]
     layers += [tf.keras.layers.Conv2D(3, 1)]

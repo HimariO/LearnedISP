@@ -28,12 +28,13 @@ import copy
 import math
 
 from tensorflow.keras import backend
-from tensorflow.keras.applications import imagenet_utils
 from tensorflow.keras import Model
-from tensorflow.keras.layers import VersionAwareLayers
+# from tensorflow.keras.layers import VersionAwareLayers
+from tensorflow.keras import layers
 from tensorflow.python.keras.utils import data_utils
 from tensorflow.python.keras.utils import layer_utils
 from tensorflow import io
+from isp.model import imagenet_utils
 
 
 BASE_WEIGHTS_PATH = 'https://storage.googleapis.com/keras-applications/'
@@ -140,7 +141,7 @@ DENSE_KERNEL_INITIALIZER = {
     }
 }
 
-layers = VersionAwareLayers()
+# layers = VersionAwareLayers()
 
 BASE_DOCSTRING = """Instantiates the {name} architecture.
 
@@ -312,7 +313,7 @@ def EfficientNet(
 
   # Build stem
   x = img_input
-  x = layers.Rescaling(1. / 255.)(x)
+  x = layers.Lambda(lambda x: x / 255.)(x)
   x = layers.Normalization(axis=bn_axis)(x)
 
   x = layers.ZeroPadding2D(
@@ -513,8 +514,6 @@ def block(inputs,
   return x
 
 
-@keras_export('keras.applications.efficientnet.EfficientNetB0',
-              'keras.applications.EfficientNetB0')
 def EfficientNetB0(include_top=True,
                    weights='imagenet',
                    input_tensor=None,
