@@ -295,7 +295,8 @@ class SIDTFRecordDataset(TFRecordDataset):
         key_to_feature[SID_RAW_INPUT.key],
         channels=1,
         dtype=tf.dtypes.uint16)
-    raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
+    with tf.device('/cpu:0'):
+      raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
     raw_image = tf.cast(raw_image, dtype=tf.float32)
     raw_image = tf.maximum(raw_image - black_level, 0)
     raw_image /= (self.BIT_DEPTH - black_level)
@@ -367,7 +368,8 @@ class MaiIspTFRecordDataset(TFRecordDataset):
         channels=1,
         dtype=tf.dtypes.uint16)
     
-    raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
+    with tf.device('/cpu:0'):
+      raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
     raw_image = tf.cast(raw_image, dtype=tf.float32)
     # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
     
@@ -427,7 +429,8 @@ class MaiIspB5TFRecordDataset(MaiIspTFRecordDataset):
         channels=1,
         dtype=tf.dtypes.uint16)
     
-    raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
+    with tf.device('/cpu:0'):
+      raw_image = tf.nn.space_to_depth(raw_image[tf.newaxis, ...], 2)[0]  # convert flatten png back into 4 channel
     raw_image = tf.cast(raw_image, dtype=tf.float32)
     # tf.debugging.assert_less_equal(raw_image, self.BIT_DEPTH)
     

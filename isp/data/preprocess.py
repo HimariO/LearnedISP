@@ -57,7 +57,7 @@ class RandomFlip(DataPreprocessingBase):
       label = label_dict[label_name]
       # NOTE: apply only if label if a image or mask
       if len(label.shape) >= 3:
-        logger.debug("RandomFlip")
+        # logger.debug("RandomFlip")
         label = tf.cond(
           to_flip,
           true_fn=lambda: (

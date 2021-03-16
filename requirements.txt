@@ -1,9 +1,10 @@
 imageio
 pillow
-tensorflow
+tensorflow-gpu==1.15.5
 # tf-nightly
 loguru
 fire
 scikit-image
 tensorflow_addons
 tensorflow-model-optimization
+psutil

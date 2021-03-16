@@ -338,7 +338,7 @@ class Experiment:
             workers=1,
             callbacks=callback_list,
           )
-          tf.keras.backend.clear_session()
+          #tf.keras.backend.clear_session()
           logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")
 
 
@@ -587,7 +587,7 @@ class CtxLossExperiment(Experiment):
       write_graph=True)
     
     # NOTE: tf-nightly: tf.summary has no attirbute 'image'
-    write_image = callbacks.SaveValImage(log_dir)
+    # write_image = callbacks.SaveValImage(log_dir)
     
     ckpt_path = os.path.join(model_dir, 'checkpoint')
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
@@ -600,7 +600,7 @@ class CtxLossExperiment(Experiment):
     stop_nan = tf.keras.callbacks.TerminateOnNaN()
     return [
       tensorbaord,
-      write_image,
+      # write_image,
       checkpoint,
       stop_nan
     ]
@@ -670,5 +670,4 @@ class CtxLossExperiment(Experiment):
         workers=1,
         callbacks=callback_list,
       )
-      tf.keras.backend.clear_session()
       logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")

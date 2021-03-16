@@ -2,7 +2,7 @@ import os
 import glob
 
 from imageio.core.util import Image
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = "2"
 
 import fire
 import imageio
@@ -296,7 +296,8 @@ def eval_tf_model(model_path):
 def run_experiment(config_path, load_weight=None):
   config = experiment.ExperimentConfig(config_path)
   exp = experiment.Experiment(config)
-  exp.train(load_weight=load_weight)
+  with tf.device('/gpu:0'):
+    exp.train(load_weight=load_weight)
 
 
 def run_two_stage_experiment(config_path, load_weight=None, skip_stage_1=False):
@@ -565,6 +566,10 @@ def test_save_h5(in_size=[256, 256]):
   print(pred.mean(), pred.shape)
 
 
+def check_gpu():
+  print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+
+
 if __name__ == '__main__':
   soft_gpu_meme_growth()
 
@@ -587,6 +592,7 @@ if __name__ == '__main__':
         'predict_test_set': predict_test_set,
         'export_pb': export_pb,
         'test_save_h5': test_save_h5,
+        'check_gpu': check_gpu,
       })
       # simple_train('./checkpoints/unet_res_bil_hyp_large')
 
