@@ -21,6 +21,15 @@
             "args": [],
         },
         {
+            "name": "main check_gpu",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["check_gpu"],
+        },
+        {
             "name": "main run_ctx_experiment",
             "type": "python",
             "request": "launch",

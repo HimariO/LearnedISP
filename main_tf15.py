@@ -6,7 +6,13 @@ from loguru import logger
 from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import optimize_for_inference_lib
 
-from isp.model.unet_tf15 import UNet, UNetGrid, UNetResX2R, UNetRes, functional_unet
+from isp.model.unet import (
+  UNet,
+  UNetGrid,
+  UNetResX2R,
+  UNetRes,
+  functional_unet,
+  functional_unet_grid)
 from isp.model import io
 
 
@@ -111,7 +117,7 @@ def load_keras_h5(in_size=[256, 256]):
     # x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
     # y = net._call(x)
     # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
-    functional_net = functional_unet(input_shape=[*in_size, 4])
+    functional_net = functional_unet_grid(input_shape=[*in_size, 4])
     functional_net.predict(np.zeros([1, *in_size, 4]))
     return functional_net
   
@@ -125,8 +131,8 @@ def load_keras_h5(in_size=[256, 256]):
 
       payload = np.ones([1, *in_size, 4]).astype(np.float32)
       pred = model.predict({
-        # io.dataset_element.MAI_RAW_PATCH: payload,
-        'input_1': payload,
+        io.dataset_element.MAI_RAW_PATCH: payload,
+        # 'input_1': payload,
       })
       print(pred.mean(), pred.shape)
       graph_ops = [n for n in tf.get_default_graph().as_graph_def().node]
@@ -141,9 +147,11 @@ def load_keras_h5(in_size=[256, 256]):
       
       if isinstance(model.input, dict):
         input_nodes = [ip.name.split(':')[0] for ip in model.input.values()]
-        output_nodes = [op.name.split(':')[0] for op in model.output.values()]
       else:
         input_nodes = [model.input.name.split(':')[0]]
+      if isinstance(model.output, dict):
+        output_nodes = [op.name.split(':')[0] for op in model.output.values()]
+      else:
         output_nodes = [model.output.name.split(':')[0]]
       
       # frozen_graph_def = graph.as_graph_def()
@@ -184,7 +192,7 @@ def load_keras_h5(in_size=[256, 256]):
         'h5_quan.pb', input_arrays=input_nodes, output_arrays=output_nodes)
       converter.inference_input_type = tf.uint8
       converter.inference_type = tf.uint8
-      converter.quantized_input_stats = {"input_1": (0, 255)}
+      converter.quantized_input_stats = {io.dataset_element.MAI_RAW_PATCH: (0, 255)}
       tflite_model = converter.convert()
       open("converted_model.tflite", "wb").write(tflite_model)
 

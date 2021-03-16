@@ -568,9 +568,14 @@ def test_save_h5(in_size=[256, 256]):
 
 def check_gpu():
   print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+  for g in tf.config.experimental.list_physical_devices('GPU'):
+    print(g.name, g)
   from isp.model.efficient_net import EfficientNetB5
-  B5 = EfficientNetB5(input_shape=[256, 256, 3], include_top=False)
-  B5.summary()
+  with tf.device('/gpu:1'):
+    B5 = EfficientNetB5(input_shape=[256, 256, 3], include_top=False)
+    # B5.summary()
+    pred = B5.predict(np.ones([1, 256, 256, 3]))
+    print(pred.mean())
   
 
 

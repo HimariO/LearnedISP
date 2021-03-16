@@ -27,6 +27,7 @@ from __future__ import print_function
 import copy
 import math
 
+import tensorflow as tf
 from tensorflow.keras import backend
 from tensorflow.keras import Model
 # from tensorflow.keras.layers import VersionAwareLayers
@@ -198,7 +199,7 @@ def EfficientNet(
     dropout_rate=0.2,
     drop_connect_rate=0.2,
     depth_divisor=8,
-    activation='swish',
+    activation=tf.nn.swish,
     blocks_args='default',
     model_name='efficientnet',
     include_top=True,
@@ -411,7 +412,7 @@ def EfficientNet(
 
 
 def block(inputs,
-          activation='swish',
+          activation=tf.nn.swish,
           drop_rate=0.,
           name='',
           filters_in=32,

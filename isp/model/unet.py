@@ -9,14 +9,15 @@ from isp import model
 
 
 @base.register_model
-class UNet(base.RawBase, UNetBilinearBlocks):
+class UNet(UNetBilinearBlocks):
 
-  def __init__(self, mode, *args, weight_decay_scale=0.00004, alpha=1.0, **kwargs):
-    super().__init__(mode, *args, **kwargs)
+  def __init__(self, mode, *args, weight_decay_scale=0.00004, alpha=1.0,
+                batch_norm_train=True,**kwargs):
+    super().__init__(*args, **kwargs)
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
     C = lambda channel: max(int(channel * alpha), 16)
-    use_wn = False
+    self.batch_norm_train = batch_norm_train
 
     self.block_x1 = self.downsample_block(C(32))
     self.block_x2 = self.downsample_block(C(64))
@@ -27,7 +28,8 @@ class UNet(base.RawBase, UNetBilinearBlocks):
     self.block_ux2 = self.upsample_block(C(128))
     self.block_ux1 = self.upsample_block(C(64))
     self.last_block = self.conv_block(C(32))
-    self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    self.transform = self.rgb_upsample_block(num_rgb_layer=1)
   
   def call(self, inputs, training=None, mask=None):
     raw = inputs[dataset_element.MAI_RAW_PATCH]
@@ -53,16 +55,16 @@ class UNet(base.RawBase, UNetBilinearBlocks):
     x = tf.keras.layers.Concatenate(axis=-1)([x, top])
     x = self.last_block(x)
     x = self.transform(x)
-    x = tf.keras.layers.Lambda(lambda z: tf.nn.depth_to_space(z, 2))(x)
+    # x = tf.keras.layers.Lambda(lambda z: tf.nn.depth_to_space(z, 2))(x)
     return x
 
 
 @base.register_model
-def functional_unet(alpha=0.5, input_shape=[128, 128, 4]):
-  unet = UNet('functional', alpha=0.5)
-  x_layer = tf.keras.Input(shape=input_shape)
+def functional_unet(alpha=0.5, input_shape=[128, 128, 4], mode='functional'):
+  unet = UNet(mode, alpha=alpha)
+  x_layer = tf.keras.Input(shape=input_shape, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
-  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.maximum(tf.nn.relu(x), -1e27), name=model_prediction.ENHANCE_RGB)(y1)
   
   input_dict = {
     dataset_element.MAI_RAW_PATCH: x_layer
@@ -822,12 +824,13 @@ class UNetGrid(RepBilinearVGGBlocks, base.RawBase):
     return x
 
 
-@base.register_model
+# @base.register_model
 def functional_unet_grid(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
   unet = UNetGrid('functional', alpha=0.5)
   x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
-  y1 = tf.keras.layers.Lambda(lambda x: x, name=model_prediction.ENHANCE_RGB)(y1)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.maximum(tf.nn.relu(x), -1e27), name=model_prediction.ENHANCE_RGB)(y1)
+  # import pdb; pdb.set_trace()
   
   input_dict = {
     dataset_element.MAI_RAW_PATCH: x_layer
