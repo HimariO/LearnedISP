@@ -4,7 +4,7 @@ from typing import List, Dict
 from collections import defaultdict
 
 import tensorflow as tf
-import tensorflow_addons as tfa
+# import tensorflow_addons as tfa
 import tensorflow_model_optimization as tfmot
 from loguru import logger
 from tensorflow_model_optimization.python.core.quantization.keras.default_8bit import default_8bit_quantize_configs
@@ -145,11 +145,11 @@ class ExperimentBuilder:
 
   def get_losses(self) -> Dict[str, losses.PredictionLossBase]:
     cfg = self.config.losses
-    loss_map = defaultdict(list)
+    loss_map = {}
     for loss_cfg in cfg:
       loss_class = losses.get_prediction_loss(loss_cfg['type'])
       loss_func = loss_class(*loss_cfg['args'], **loss_cfg['kwargs'])
-      loss_map[loss_cfg['target_output']].append(loss_func)
+      loss_map[loss_cfg['target_output']] = loss_func
     return dict(loss_map)
   
   def get_metrics(self) -> Dict[str, metrics.PredictionMetricBase]:
@@ -191,7 +191,7 @@ class ExperimentBuilder:
   
   def get_train_dataset(self):
     final_dataset = self.get_datasets(self.config.train_datasets, preprocess=True)
-    return final_dataset.repeat().prefetch(tf.data.AUTOTUNE)
+    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
   
   def get_val_dataset(self):
     final_dataset = self.get_datasets(self.config.val_datasets)
@@ -204,7 +204,7 @@ class ExperimentBuilder:
     logger.info(f"metrics_dict: {metrics_dict}")
     logger.info(f"losses_dict: {losses_dict}")
     
-    adam = tf.optimizers.Adam(learning_rate=self.config.general['learning_rate'])
+    adam = tf.compat.v1.train.AdamOptimizer(learning_rate=self.config.general['learning_rate'])
     # adam = tfa.optimizers.SWA(adam, start_averaging=8000, average_period=2000)
     model.compile(
       optimizer=adam,
@@ -251,11 +251,12 @@ class Experiment:
   def __init__(self, config: ExperimentConfig) -> None:
     self.config = config
     self.builder = ExperimentBuilder(config)
-    self.model = self.builder.compilted_model()
+    self.model = None
     self.train_dataset = None
     self.val_dataset = None
   
   def sanity_check(self, model: tf.keras.models.Model, dataset: tf.data.Dataset):
+    return
     for x, y in dataset:
       pred = model.predict(x)
       np_label = y[io.model_prediction.ENHANCE_RGB].numpy()
@@ -279,7 +280,7 @@ class Experiment:
       write_images=True,
       write_graph=True)
     
-    write_image = callbacks.SaveValImage(log_dir)
+    # write_image = callbacks.SaveValImage(log_dir)
     
     ckpt_path = os.path.join(model_dir, 'checkpoint')
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
@@ -307,33 +308,38 @@ class Experiment:
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
     
-    if load_weight is not None:
-      logger.info(f'load_weight: {load_weight}')
-      if os.path.exists(os.path.join(load_weight, 'saved_model.pb')):
-        # TODO: May be I should add a load_model options?
-        self.model = tf.keras.models.load_model(load_weight)
-      else:
-        self.model.load_weights(load_weight)
-    
-    self.train_dataset = self.builder.get_train_dataset()
-    self.val_dataset = self.builder.get_val_dataset()
-    self.sanity_check(self.model, self.val_dataset)
-    callback_list = self.callbacks
-    
-    e_per_loop = 10
-    for e in range(0, epoch, e_per_loop):
-      self.model.fit(
-        self.train_dataset,
-        steps_per_epoch=1000,
-        epochs=min(epoch, e + e_per_loop),
-        initial_epoch=e,
-        validation_data=self.val_dataset,
-        use_multiprocessing=False,
-        workers=1,
-        callbacks=callback_list,
-      )
-      tf.keras.backend.clear_session()
-      logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")
+    graph = tf.Graph()
+    with graph.as_default():
+      with tf.Session(graph=graph) as sess:
+        tf.keras.backend.set_session(sess)
+        self.model = self.builder.compilted_model()
+        if load_weight is not None:
+          logger.info(f'load_weight: {load_weight}')
+          if os.path.exists(os.path.join(load_weight, 'saved_model.pb')):
+            # TODO: May be I should add a load_model options?
+            self.model = tf.keras.models.load_model(load_weight)
+          else:
+            self.model.load_weights(load_weight)
+        
+        self.train_dataset = self.builder.get_train_dataset()
+        self.val_dataset = self.builder.get_val_dataset()
+        self.sanity_check(self.model, self.val_dataset)
+        callback_list = self.callbacks
+        
+        e_per_loop = 10
+        for e in range(0, epoch, e_per_loop):
+          self.model.fit(
+            self.train_dataset,
+            steps_per_epoch=1000,
+            epochs=min(epoch, e + e_per_loop),
+            initial_epoch=e,
+            validation_data=self.val_dataset,
+            use_multiprocessing=False,
+            workers=1,
+            callbacks=callback_list,
+          )
+          tf.keras.backend.clear_session()
+          logger.debug(f" mem: {process.memory_info().rss / 2**20: .2f}")
 
 
 class TwoStageExperiment(Experiment):

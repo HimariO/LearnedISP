@@ -6,7 +6,7 @@ from loguru import logger
 from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import optimize_for_inference_lib
 
-from isp.model.unet import UNet, UNetGrid, UNetResX2R, UNetRes
+from isp.model.unet_tf15 import UNet, UNetGrid, UNetResX2R, UNetRes, functional_unet
 from isp.model import io
 
 
@@ -96,31 +96,31 @@ def load_keras_h5(in_size=[256, 256]):
   tf.enable_control_flow_v2()
   
   def get_keras_model():
-    net = UNet('export', alpha=1.0)
-    payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
-    net.predict({
-      io.dataset_element.MAI_RAW_PATCH: payload
-    })
-    # net.load_weights(model_dir)
+    # net = UNet('export', alpha=1.0)
+    # payload = np.random.normal(size=[1, *in_size, 4]).astype(np.float32)
+    # net.predict({
+    #   io.dataset_element.MAI_RAW_PATCH: payload
+    # })
+    # # net.load_weights(model_dir)
     
-    tf_pred = net.predict({
-      io.dataset_element.MAI_RAW_PATCH: payload
-    })
-    # remove_weight_norm(net)
+    # tf_pred = net.predict({
+    #   io.dataset_element.MAI_RAW_PATCH: payload
+    # })
+    # # remove_weight_norm(net)
     
-    x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
-    y = net._call(x)
+    # x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
+    # y = net._call(x)
     # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
-    functional_net = tf.keras.models.Model(x, y)
+    functional_net = functional_unet(input_shape=[*in_size, 4])
     functional_net.predict(np.zeros([1, *in_size, 4]))
-    return net, functional_net
+    return functional_net
   
   sess = tf.Session()
   with sess.as_default():
     with sess.graph.as_default():
       tf.keras.backend.set_session(sess)
       # tf.keras.models.load_model('test_h5.h5')
-      _, model = get_keras_model()
+      model = get_keras_model()
       # model.load_weights('test_h5.h5')
 
       payload = np.ones([1, *in_size, 4]).astype(np.float32)
@@ -139,31 +139,51 @@ def load_keras_h5(in_size=[256, 256]):
       tf.contrib.quantize.create_eval_graph(input_graph=graph)
       sess.run(tf.global_variables_initializer())
       
-      input_nodes = [model.input.name.split(':')[0]]
-      output_nodes = [model.output.name.split(':')[0]]
+      if isinstance(model.input, dict):
+        input_nodes = [ip.name.split(':')[0] for ip in model.input.values()]
+        output_nodes = [op.name.split(':')[0] for op in model.output.values()]
+      else:
+        input_nodes = [model.input.name.split(':')[0]]
+        output_nodes = [model.output.name.split(':')[0]]
       
-      frozen_graph_def = graph.as_graph_def()
+      # frozen_graph_def = graph.as_graph_def()
       frozen_graph_def = tf.graph_util.convert_variables_to_constants(
-          sess,
-          graph.as_graph_def(),
-          output_nodes
-          # ['lambda_1/DepthToSpace'],
+        sess,
+        graph.as_graph_def(),
+        output_nodes
+        # ['lambda_1/DepthToSpace'],
       )
-      frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
-          frozen_graph_def,
-          input_nodes,
-          output_nodes,
-          tf.float32.as_datatype_enum
-      )
+      # frozen_graph_def = optimize_for_inference_lib.optimize_for_inference(
+      #   frozen_graph_def,
+      #   input_nodes,
+      #   output_nodes,
+      #   tf.float32.as_datatype_enum
+      # )
+
+      # for node in frozen_graph_def.node:
+      #   if node.op == 'RefSwitch':
+      #     node.op = 'Switch'
+      #     for index in range(len(node.input)):
+      #       if 'moving_' in node.input[index]:
+      #         node.input[index] = node.input[index] + '/read'
+      #   elif node.op == 'AssignSub':
+      #     node.op = 'Sub'
+      #     if 'use_locking' in node.attr: del node.attr['use_locking']
+
       with open('h5_quan.pb', 'wb') as f:
         # import pdb; pdb.set_trace()
+        # f.write(graph.as_graph_def().SerializeToString())
         f.write(frozen_graph_def.SerializeToString())
       
-      # converter = tf.lite.TFLiteConverter.from_session(sess, [model.input], [model.output])
+      print("input_nodes: ", input_nodes)
+      print("output_nodes: ", output_nodes)
+      print('-' * 100)
+      # converter = tf.lite.TFLiteConverter.from_session(
+      #   sess, list(model.input.values()), list(model.output.values()))
       converter = tf.lite.TFLiteConverter.from_frozen_graph(
         'h5_quan.pb', input_arrays=input_nodes, output_arrays=output_nodes)
       converter.inference_input_type = tf.uint8
-      # converter.inference_type = tf.uint8
+      converter.inference_type = tf.uint8
       converter.quantized_input_stats = {"input_1": (0, 255)}
       tflite_model = converter.convert()
       open("converted_model.tflite", "wb").write(tflite_model)
@@ -177,5 +197,5 @@ if __name__ == "__main__":
   #   ['serving_default_input_1:0'],
   #   ['StatefulPartitionedCall:0'],
   # )
-  with logger.catch():
+  with logger.catch(reraise=True):
     load_keras_h5()

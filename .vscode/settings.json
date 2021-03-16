@@ -1,7 +1,7 @@
 {
-    "python.pythonPath": "/home/ron/miniconda3/envs/ISP/bin/python3",
     "[python]": {
         "editor.insertSpaces": true,
         "editor.tabSize": 2
-    }
+    },
+    "python.pythonPath": "/home/ron/miniconda3/envs/ISP-15/bin/python"
 }

@@ -12,6 +12,15 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "main_tf15",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main_tf15.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [],
+        },
+        {
             "name": "main run_ctx_experiment",
             "type": "python",
             "request": "launch",

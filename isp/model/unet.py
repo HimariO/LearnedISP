@@ -825,9 +825,9 @@ class UNetGrid(RepBilinearVGGBlocks, base.RawBase):
 @base.register_model
 def functional_unet_grid(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
   unet = UNetGrid('functional', alpha=0.5)
-  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
-  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  y1 = tf.keras.layers.Lambda(lambda x: x, name=model_prediction.ENHANCE_RGB)(y1)
   
   input_dict = {
     dataset_element.MAI_RAW_PATCH: x_layer
