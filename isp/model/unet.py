@@ -824,7 +824,7 @@ class UNetGrid(RepBilinearVGGBlocks, base.RawBase):
     return x
 
 
-# @base.register_model
+@base.register_model
 def functional_unet_grid(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
   unet = UNetGrid('functional', alpha=0.5)
   x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)

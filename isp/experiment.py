@@ -183,8 +183,8 @@ class ExperimentBuilder:
       
       tf_dataset = dataset_obj.create_dataset(
         batch_size=self.config.general['batch_size'],
-        num_readers=4,
-        num_parallel_calls=8
+        num_readers=16,
+        num_parallel_calls=32
       )
       datasets.append(tf_dataset)
     return tf.data.experimental.sample_from_datasets(datasets)
@@ -195,7 +195,7 @@ class ExperimentBuilder:
   
   def get_val_dataset(self):
     final_dataset = self.get_datasets(self.config.val_datasets)
-    return final_dataset
+    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
   
   def compilted_model(self, loss_weights=None, model=None):
     model = self.get_model() if model is None else model
