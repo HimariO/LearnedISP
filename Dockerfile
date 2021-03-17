@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:1.15.5-gpu-py3-jupyter
+FROM nvcr.io/nvidia/tensorflow:20.08-tf1-py3
 RUN sed -i "1iforce_color_prompt=true" "$HOME/.bashrc"
 COPY . /LearnedISP
 RUN apt update \

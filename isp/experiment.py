@@ -276,7 +276,7 @@ class Experiment:
     log_dir = os.path.join(model_dir, 'logs')
     tensorbaord = tf.keras.callbacks.TensorBoard(
       log_dir=log_dir,
-      histogram_freq=0,
+      histogram_freq=1,
       write_images=True,
       write_graph=True)
     

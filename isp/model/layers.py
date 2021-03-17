@@ -189,26 +189,6 @@ class ResConvBlock(tf.keras.Model):
     return x
 
 
-class _ResConvBlock(tf.keras.Model):
-
-  def __init__(self, channel, weight_norm=True, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self._layers = [
-      tf.keras.layers.Conv2D(channel, 3, padding='same', strides=(1, 1), activation=None),
-      tf.keras.layers.Activation(tf.nn.relu6),
-      BatchNormalization(),
-    ]
-
-  def call(self, inputs):
-    x = inputs
-    t = x
-    for layer in self._layers:
-      x = layer(x)
-    if tf.shape(t)[-1] == tf.shape(x)[-1]:
-      x += t
-    return x
-
-
 class RepConv(tf.keras.Model):
 
   COUNT = 0
@@ -308,7 +288,24 @@ class RepConv(tf.keras.Model):
         x = self.activation(self.add([x1, x3, identity]))
       else:
         x = self.activation(self.add([x1, x3]))
-      return tf.maximum(x, -1e27)
+      return x
+  
+  def _shadow_call(self, i1, i2):
+    """
+    Used for quantization aware training to train with both reparameterized and
+    non-reparameterized data path.
+    NOTE: rep_conv should using shared kerenl obtain from _fuse_bn_tensor at this point
+    """
+    x3 = self.bn3(self.conv3(i1))
+    x1 = self.bn1(self.conv1(i1))
+    if int(i1.shape[-1]) == self.channel:
+      identity = self.bn_id(i1)
+      y1 = self.activation(self.add([x1, x3, identity]))
+    else:
+      y1 = self.activation(self.add([x1, x3]))
+    
+    y2 = self.rep_conv3(i2)
+    return y1, y2
 
 
 class _RepConv(tf.keras.layers.Layer):
@@ -391,7 +388,8 @@ class UNetBlocks:
   def __init__(self, *args, **kwargs) -> None:
     super().__init__(*args, **kwargs)
     mode = getattr(self, 'mode')
-    self.is_training = mode == 'train' or mode == 'training'
+    self.is_training = mode == 'train' or mode == 'training' or mode == 'functional'
+    logger.info(f"[{self.__class__.__name__}] is_training: {self.is_training}")
 
   def sequential(self, layers=None, name=None):
     if hasattr(self, 'mode'):
@@ -553,7 +551,8 @@ class RepVGGBlocks:
     self.block_act = tf.nn.relu
     super().__init__(*args, **kwargs)
     mode = getattr(self, 'mode')
-    self.is_training = mode == 'train' or mode == 'training'
+    self.is_training = mode == 'train' or mode == 'training' or mode == 'functional'
+    logger.info(f"[{self.__class__.__name__}] is_training: {self.is_training}")
 
   def sequential(self, layers=None, name=None):
     if hasattr(self, 'mode'):
@@ -672,6 +671,8 @@ class RepBilinearVGGBlocks(RepVGGBlocks):
     layers = [
         tf.keras.layers.UpSampling2D(size=(2, 2), interpolation='bilinear'),
     ]
-    layers += [RepConv(8, 3, padding='same', activation=None, norm_type=norm_type, is_training=self.is_training) for _ in range(num_rgb_layer)]
+    layers += [
+      RepConv(8, 3, padding='same', activation=None, norm_type=norm_type, is_training=self.is_training)
+      for _ in range(num_rgb_layer)]
     layers += [tf.keras.layers.Conv2D(3, 1)]
     return self.sequential(layers=layers, name=name)

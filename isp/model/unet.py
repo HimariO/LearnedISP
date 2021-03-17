@@ -13,6 +13,7 @@ class UNet(UNetBilinearBlocks):
 
   def __init__(self, mode, *args, weight_decay_scale=0.00004, alpha=1.0,
                 batch_norm_train=True,**kwargs):
+    self.mode = mode
     super().__init__(*args, **kwargs)
 
     regularizer = tf.keras.regularizers.l2(weight_decay_scale)
@@ -826,10 +827,10 @@ class UNetGrid(RepBilinearVGGBlocks, base.RawBase):
 
 @base.register_model
 def functional_unet_grid(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
-  unet = UNetGrid('functional', alpha=0.5)
+  unet = UNetGrid(mode, alpha=0.5)
   x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
-  y1 = tf.keras.layers.Lambda(lambda x: tf.maximum(tf.nn.relu(x), -1e27), name=model_prediction.ENHANCE_RGB)(y1)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.maximum(x, -1e27), name=model_prediction.ENHANCE_RGB)(y1)
   # import pdb; pdb.set_trace()
   
   input_dict = {

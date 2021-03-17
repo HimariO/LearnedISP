@@ -294,10 +294,11 @@ def eval_tf_model(model_path):
 
 
 def run_experiment(config_path, load_weight=None):
+  # tf.compat.v1.disable_eager_execution()
   config = experiment.ExperimentConfig(config_path)
   exp = experiment.Experiment(config)
-  with tf.device('/gpu:0'):
-    exp.train(load_weight=load_weight)
+  # with tf.device('/gpu:1'):
+  exp.train(load_weight=load_weight)
 
 
 def run_two_stage_experiment(config_path, load_weight=None, skip_stage_1=False):
