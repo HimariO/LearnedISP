@@ -7,6 +7,7 @@ from .io import dataset_element, model_prediction
 from .layers import *
 from isp import model
 from isp.model.efficient_net import EfficientNetB5
+from isp.model import ref_layers
 
 
 @base.register_model
@@ -971,6 +972,199 @@ class UNetCoBi(UNetGrid):
 def functional_unet_cobi(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
   assert mode in base.MODES
   unet = UNetCoBi(mode, alpha=alpha)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
+  y1 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  
+  if mode in ['quant_train', 'quant_eval']:
+    sess = tf.keras.backend.get_session()
+    graph = sess.graph
+    assert graph is not None
+    if mode == "quant_train":
+      tf.contrib.quantize.create_training_graph(input_graph=graph)
+    else:
+      tf.contrib.quantize.create_eval_graph(input_graph=graph)
+    unet.B5 = unet.build_feature_extracter()
+  
+  rescale_rgb = tf.keras.layers.Lambda(lambda rgb: tf.clip_by_value(rgb, 0, 1) * 255)
+  block7c_add, block5g_add, block3e_add = unet.B5(rescale_rgb(y1))
+  block7c_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.SMALL_FEAT)(block7c_add)
+  block5g_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.MID_FEAT)(block5g_add)
+  block3e_add = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.LARGE_FEAT)(block3e_add)
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+    model_prediction.LARGE_FEAT: block3e_add,
+    model_prediction.MID_FEAT: block5g_add,
+    model_prediction.SMALL_FEAT: block7c_add,
+  }
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model
+
+
+@base.register_model
+class UNetGridRef(ref_layers.RefRepBilinearVGGBlocks, base.RawBase):
+  """
+  Reference to the tf2 version of UNetGrid which using tf.keras.layer.BatchNorm
+  """
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
+    super().__init__(mode, *args, **kwargs)
+
+    regularizer = tf.keras.regularizers.l2(weight_decay_scale)
+
+    def C(channel): return max(int(channel * alpha), 16)
+    self.coord = ConcatCoordinate()
+    self.block_x1 = self.conv_block(C(32), norm_type=norm_type)
+    self.block_x2 = self.reverse_res_downsample_block(C(64), norm_type=norm_type)
+    self.block_x4 = self.reverse_res_downsample_block(C(128), norm_type=norm_type)
+    self.block_x8 = self.reverse_res_downsample_block(C(256), norm_type=norm_type)
+    self.block_x16 = self.reverse_res_downsample_block(C(512), norm_type=norm_type)
+    self.up_x16_x8 = self.upsample_layer(C(256), norm_type=norm_type)
+    self.block_ux8 = self.res_conv_block(C(256), norm_type=norm_type)
+    self.up_x8_x4 = self.upsample_layer(C(128), norm_type=norm_type)
+    self.block_ux4 = self.res_conv_block(C(128), norm_type=norm_type)
+    self.up_x4_x2 = self.upsample_layer(C(64), norm_type=norm_type)
+    self.block_ux2 = self.res_conv_block(C(64), norm_type=norm_type)
+    self.up_x2_x1 = self.upsample_layer(C(32), norm_type=norm_type)
+    self.last_conv = self.res_conv_block(C(32), norm_type=norm_type)
+
+    # NOTE: Auto generated tf lambda layer will trigger weird clone functional model error,
+    #       so build model with builtin layer instead!
+    self.cat8 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat4 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat2 = tf.keras.layers.Concatenate(axis=-1)
+    self.cat1 = tf.keras.layers.Concatenate(axis=-1)
+
+    # self.transform = tf.keras.layers.Conv2D(12, 1, activation=None)
+    # self.transform = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_high = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_low = self.rgb_upsample_block(num_rgb_layer=1, norm_type=norm_type)
+    self.transform_add = tf.keras.layers.Add()
+
+    self._first_kernel = None
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    # import pdb; pdb.set_trace()
+    return {
+      model_prediction.ENHANCE_RGB: rgb
+    }
+
+  def _call(self, x, training=None, mask=None):
+    top = x
+    # x = self.coord(x)
+    # x = x1 = self.coord(self.block_x1(x))
+    x = x1 = self.block_x1(x)
+    x = x2 = self.block_x2(x)
+    x = x4 = self.block_x4(x)
+    x = x8 = self.block_x8(x)
+    x = self.block_x16(x)
+    x = self.up_x16_x8(x)
+    x = self.cat8([x, x8])
+    x = self.block_ux8(x)
+    x = self.up_x8_x4(x)
+    x = self.cat4([x, x4])
+    x = self.block_ux4(x)
+    x = self.up_x4_x2(x)
+    x = self.cat2([x, x2])
+    x = self.block_ux2(x)
+    x = self.up_x2_x1(x)
+    x = self.cat1([x, x1])
+    x = self.last_conv(x)
+    x_high = self.transform_high(x)
+    x_low = self.transform_low(x)
+    x = self.transform_add([x_low, x_high])
+    
+    # return tf.nn.depth_to_space(x, 2)
+    return x
+
+
+@base.register_model
+def functional_unet_grid_ref(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
+  unet = UNetGridRef(mode, alpha=0.5)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
+  y1 = unet._call(x_layer)
+  y1 = tf.keras.layers.Lambda(lambda x: tf.maximum(x, -1e27), name=model_prediction.ENHANCE_RGB)(y1)
+  # import pdb; pdb.set_trace()
+  
+  input_dict = {
+    dataset_element.MAI_RAW_PATCH: x_layer
+  }
+  output_dict = {
+    model_prediction.ENHANCE_RGB: y1,
+  }
+  model = tf.keras.Model(inputs=input_dict, outputs=output_dict)
+  model.summary()
+  return model
+
+
+@base.register_model
+class UNetCoBiRef(UNetGridRef):
+
+  def __init__(self, mode, *args, weight_decay_scale=0.00004,
+               alpha=1.0, num_rgb_layer=0, norm_type='bn', **kwargs):
+    super().__init__(
+      mode, *args,
+      weight_decay_scale=weight_decay_scale,
+      alpha=alpha,
+      num_rgb_layer=num_rgb_layer,
+      norm_type=norm_type,
+      **kwargs)
+    self.mode = mode
+    self.B5 = None
+    
+    if self.mode in ['train', 'functional']:
+      self.build_feature_extracter()
+
+  def build_feature_extracter(self):
+    _B5 = EfficientNetB5(
+      input_shape=[256, 256, 3], include_top=False)
+    block3e_add = _B5.layers[188].output  #(32, 32, 64)
+    block5g_add = _B5.layers[395].output  #(16, 16, 176)
+    block7c_add = _B5.layers[572].output  #(8, 8, 512)
+    outputs = [block7c_add, block5g_add, block3e_add]
+    self.B5 = tf.keras.Model(_B5.input, outputs, trainable=False)
+    self.freeze_model(self.B5)
+    return self.B5
+  
+  def freeze_model(self, model: tf.keras.Model):
+    for l in model.layers:
+      l.trainable = False
+      if hasattr(l, 'layers'):
+        self.freeze_model(l)
+  
+  def call(self, inputs, training=None, mask=None):
+    raw = inputs[dataset_element.MAI_RAW_PATCH]
+    rgb = self._call(raw)
+    
+    if self.mode == 'train':
+      rescale_rgb = tf.clip_by_value(rgb, 0, 1) * 255
+      # dslr_rgb = inputs[dataset_element.MAI_DSLR_PATCH]
+      block7c_add, block5g_add, block3e_add = self.B5(rescale_rgb)
+      
+      return {
+        model_prediction.ENHANCE_RGB: rgb,
+        model_prediction.LARGE_FEAT: block3e_add,
+        model_prediction.MID_FEAT: block5g_add,
+        model_prediction.SMALL_FEAT: block7c_add,
+      }
+    else:
+      return {
+        model_prediction.ENHANCE_RGB: rgb,
+      }
+
+
+@base.register_model
+def functional_unet_cobi_ref(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
+  assert mode in base.MODES
+  unet = UNetCoBiRef(mode, alpha=alpha)
   x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
   y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)

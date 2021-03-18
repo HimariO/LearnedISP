@@ -11,7 +11,9 @@ from tensorflow import keras
 #   lambda x: tf.contrib.slim.batch_norm(x, is_training=True))
 
 def BatchNormalization(is_training=True, **kwargs):
-  return tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=is_training), **kwargs)
+  # return tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=is_training), **kwargs)
+  func = lambda x: tf.compat.v1.layers.batch_normalization(x, training=is_training, fused=False)
+  return tf.keras.layers.Lambda(func, **kwargs)
 
 
 
@@ -269,10 +271,16 @@ class RepConv(tf.keras.Model):
       k3, b3 = self._fuse_bn_tensor(self.conv3, self.bn3)
       k1, b1 = self._fuse_bn_tensor(self.conv1, self.bn1)
       k1_3 = tf.pad(k1, [(1, 1), (1, 1), (0, 0), (0, 0)], constant_value=0.0)
-      # if int(k1.shape[2]) == int(k1.shape[3]):
-      #   kid = 
+      
+      kid_init = np.zeros([3, 3, self.channel, self.channel], dtype=np.float32)
+      if int(k1.shape[2]) == int(k1.shape[3]):
+        for c in range(self.channel):
+          kid_init[1, 1, c, c] = 1.0
+      kid = tf.constant(kid_init)
+      k_rep = k3 + k1_3 + kid
+      b_rep = b3 + b1
 
-      raise NotImplementedError()
+      return k_rep, b_rep
     else:
       raise ValueError(f"Unknow normalization type: {self.norm_type}")
 

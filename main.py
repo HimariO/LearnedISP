@@ -324,7 +324,7 @@ def run_ctx_experiment(config_path, load_weight=None, quantize=False):
       tf.keras.backend.set_session(sess)
       config = experiment.ExperimentConfig(config_path)
       exp = experiment.CtxLossExperiment(config)
-      exp.train(load_weight=load_weight, quantize=quantize)
+      exp.train(load_weight=load_weight)
 
 
 def run_debug_experiment(config_path, load_weight=None, quantize=False):
@@ -577,12 +577,12 @@ def check_gpu():
     print(g.name, g)
   from isp.model.efficient_net import EfficientNetB5
   with tf.device('/gpu:0'):
-    dog_img = np.asarray(Image.open('dog.jpeg').resize((331, 331))).astype(np.float32)[None, ...]
+    dog_img = np.asarray(Image.open('cat.jpg').resize((456, 456))).astype(np.float32)[None, ...]
     
-    dog_img = tf.keras.applications.nasnet.preprocess_input(dog_img)
-    B5 = tf.keras.applications.NASNetLarge()
+    # dog_img = tf.keras.applications.nasnet.preprocess_input(dog_img)
+    # B5 = tf.keras.applications.NASNetLarge()
     
-    # B5 = EfficientNetB5()
+    B5 = EfficientNetB5()
     # B5 = EfficientNetB5(input_shape=[256, 256, 3], include_top=False)
     # B5.summary()
     

@@ -564,7 +564,7 @@ class DebugExperiment(Experiment):
 class CtxLossExperiment(Experiment):
 
   def __init__(self, config: ExperimentConfig) -> None:
-    loss_weights = {
+    self.loss_weights = {
       io.model_prediction.ENHANCE_RGB: 0.1,
       io.model_prediction.LARGE_FEAT: 0.3,
       io.model_prediction.MID_FEAT: 0.25,
@@ -572,7 +572,7 @@ class CtxLossExperiment(Experiment):
     }
     self.config = config
     self.builder = ExperimentBuilder(config)
-    self.model = self.builder.compilted_model(loss_weights=loss_weights)
+    self.model = self.builder.compilted_model(loss_weights=self.loss_weights)
     self.train_dataset = None
     self.val_dataset = None
   
@@ -633,6 +633,7 @@ class CtxLossExperiment(Experiment):
     return func_model
 
   def train(self, epoch=None, load_weight=None, quantize=False):
+    # NOTE: using vanillna .train for debugging
     import os, psutil
     from loguru import logger
     process = psutil.Process(os.getpid())

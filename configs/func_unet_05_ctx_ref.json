@@ -1,14 +1,14 @@
 {
       "general": {
-        "learning_rate": 0.0001,
-        "model_dir": "checkpoints/func_unet_05_grid",
+        "learning_rate": 0.00001,
+        "model_dir": "checkpoints/func_unet_05_ctx_ref",
         "log_dir": "",
-        "epoch": 50,
+        "epoch": 1000,
         "scheduler": "cycle",
-        "batch_size": 64
+        "batch_size": 32
       },
       "model": {
-        "type": "functional_unet_grid",
+        "type": "functional_unet_cobi_ref",
         "init_param": {
           "args": [],
           "kwargs": {
@@ -29,6 +29,33 @@
           "args": [],
           "kwargs": {},
           "target_output": "enhanced_rgb"
+        },
+        {
+          "type": "CoBi",
+          "args": [],
+          "kwargs": {
+            "patch_size": [5, 5],
+            "name": "cobi_l"
+          },
+          "target_output": "large_feature_map"
+        },
+        {
+          "type": "CoBi",
+          "args": [],
+          "kwargs": {
+            "patch_size": [3, 3],
+            "name": "cobi_m"
+          },
+          "target_output": "mid_feature_map"
+        },
+        {
+          "type": "CoBi",
+          "args": [],
+          "kwargs": {
+            "patch_size": [1, 1],
+            "name": "cobi_s"
+          },
+          "target_output": "small_feature_map"
         }
       ],
       "metrics": [
@@ -41,19 +68,19 @@
       ],
       "train_datasets": [
         {
-          "type": "MaiIspTFRecordDataset",
+          "type": "MaiIspB5TFRecordDataset",
           "args": [],
           "kwargs": {
-              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5/mai_isp.*.tfrecord"
+              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5_tf15/mai_isp.*.tfrecord"
           }
         }
       ],
       "val_datasets": [
         {
-          "type": "MaiIspTFRecordDataset",
+          "type": "MaiIspB5TFRecordDataset",
           "args": [],
           "kwargs": {
-              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5/mai_isp_val.*.tfrecord"
+              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5_tf15/mai_isp_val.*.tfrecord"
           }
         }
       ],

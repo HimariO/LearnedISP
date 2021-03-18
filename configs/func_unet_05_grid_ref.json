@@ -1,14 +1,14 @@
 {
       "general": {
         "learning_rate": 0.0001,
-        "model_dir": "checkpoints/func_unet_05_grid",
+        "model_dir": "checkpoints/func_unet_05_grid_ref",
         "log_dir": "",
         "epoch": 50,
         "scheduler": "cycle",
         "batch_size": 64
       },
       "model": {
-        "type": "functional_unet_grid",
+        "type": "functional_unet_grid_ref",
         "init_param": {
           "args": [],
           "kwargs": {

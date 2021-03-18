@@ -117,7 +117,7 @@ def load_keras_h5(in_size=[256, 256]):
     # x = tf.keras.Input(shape=[*in_size, 4], batch_size=1, dtype=tf.float32)
     # y = net._call(x)
     # y = tf.cast(tf.clip_by_value(y, 0.0, 1.0) * 255, tf.uint8)
-    functional_net = functional_unet_grid(input_shape=[*in_size, 4], mode='export')
+    functional_net = functional_unet(input_shape=[*in_size, 4], mode='functional')
     functional_net.predict(np.zeros([1, *in_size, 4]))
     return functional_net
   
