@@ -6,6 +6,7 @@ from . import base
 from .io import dataset_element, model_prediction
 from .layers import *
 from isp import model
+from isp.model.efficient_net import EfficientNetB5
 
 
 @base.register_model
@@ -923,16 +924,21 @@ class UNetCoBi(UNetGrid):
       norm_type=norm_type,
       **kwargs)
     self.mode = mode
+    self.B5 = None
     
-    if self.mode == 'train' or self.mode == 'functional':
-      _B5 = tf.keras.applications.EfficientNetB5(
-        input_shape=[256, 256, 3], include_top=False)
-      block3e_add = _B5.layers[188].output  #(32, 32, 64)
-      block5g_add = _B5.layers[395].output  #(16, 16, 176)
-      block7c_add = _B5.layers[572].output  #(8, 8, 512)
-      outputs = [block7c_add, block5g_add, block3e_add]
-      self.B5 = tf.keras.Model(_B5.input, outputs, trainable=False)
-      self.freeze_model(self.B5)
+    if self.mode in ['train', 'functional']:
+      self.build_feature_extracter()
+
+  def build_feature_extracter(self):
+    _B5 = EfficientNetB5(
+      input_shape=[256, 256, 3], include_top=False)
+    block3e_add = _B5.layers[188].output  #(32, 32, 64)
+    block5g_add = _B5.layers[395].output  #(16, 16, 176)
+    block7c_add = _B5.layers[572].output  #(8, 8, 512)
+    outputs = [block7c_add, block5g_add, block3e_add]
+    self.B5 = tf.keras.Model(_B5.input, outputs, trainable=False)
+    self.freeze_model(self.B5)
+    return self.B5
   
   def freeze_model(self, model: tf.keras.Model):
     for l in model.layers:
@@ -963,10 +969,21 @@ class UNetCoBi(UNetGrid):
 
 @base.register_model
 def functional_unet_cobi(alpha=0.5, batch_size=None, input_shape=[128, 128, 4], mode='functional'):
-  unet = UNetCoBi('functional', alpha=0.5)
-  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size)
+  assert mode in base.MODES
+  unet = UNetCoBi(mode, alpha=alpha)
+  x_layer = tf.keras.Input(shape=input_shape, batch_size=batch_size, name=dataset_element.MAI_RAW_PATCH)
   y1 = unet._call(x_layer)
   y1 = tf.keras.layers.Lambda(lambda x: tf.identity(x), name=model_prediction.ENHANCE_RGB)(y1)
+  
+  if mode in ['quant_train', 'quant_eval']:
+    sess = tf.keras.backend.get_session()
+    graph = sess.graph
+    assert graph is not None
+    if mode == "quant_train":
+      tf.contrib.quantize.create_training_graph(input_graph=graph)
+    else:
+      tf.contrib.quantize.create_eval_graph(input_graph=graph)
+    unet.B5 = unet.build_feature_extracter()
   
   rescale_rgb = tf.keras.layers.Lambda(lambda rgb: tf.clip_by_value(rgb, 0, 1) * 255)
   block7c_add, block5g_add, block3e_add = unet.B5(rescale_rgb(y1))

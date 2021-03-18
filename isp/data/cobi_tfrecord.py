@@ -12,6 +12,7 @@ import tensorflow as tf
 from PIL import Image
 from loguru import logger
 
+from isp.model.efficient_net import EfficientNetB5
 from . import dataset
 from . mai_tfrecord import (
   extract_bayer_channels,
@@ -21,8 +22,11 @@ from . mai_tfrecord import (
 
 
 def get_B5():
-  _B5 = tf.keras.applications.EfficientNetB5(
+  _B5 = EfficientNetB5(
     input_shape=[256, 256, 3], include_top=False)
+
+  for i in [188, 395, 572]:
+    logger.info(f'Using feature layer: {_B5.layers[i].name}')
   
   block3e_add = _B5.layers[188].output  #(32, 32, 64)
   block5g_add = _B5.layers[395].output  #(16, 16, 176)
@@ -150,12 +154,21 @@ def create_tfrecord(mai_root_dir, tfrecord_dir, type='train'):
 
 
 if __name__ == '__main__':
+  tf.enable_eager_execution()
   # train_data, train_answ = load_train_patch(
   #   '/home/ron/Downloads/LearnedISP',
   #   256, 256, 1)
   # import pdb; pdb.set_trace()
 
   # create_tfrecord('/home/ron/Downloads/LearnedISP', '/home/ron/Downloads/LearnedISP/tfrecord_b5')
-  create_tfrecord('/home/ron_zhu/MAI21', '/home/ron_zhu/MAI21/tfrecord_b5')
+  # create_tfrecord('/home/ron_zhu/MAI21', '/home/ron_zhu/MAI21/tfrecord_b5')
+  create_tfrecord('/Disk3', '/Disk3/tfrecord_b5_tf15')
 
   # fire.Fire(create_tfrecord)
+
+  # sess = tf.get_default_session()
+  # sess = tf.Session()
+  # binstr = sess.run(tf.image.encode_png(np.ones([256, 256, 3], dtype=np.uint8)))
+  # binstr = tf.image.encode_png(np.ones([256, 256, 3], dtype=np.uint8))
+  # print(binstr.numpy())
+  # print(type(binstr))

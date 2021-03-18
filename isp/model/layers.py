@@ -248,11 +248,11 @@ class RepConv(tf.keras.Model):
   
   def _fuse_bn_tensor(self, conv, bn):
     assert len(conv.variables) == 1, "conv layer of repvgg layer should't using bias!"
-    kernel = conv.kernel
+    kernel = conv.kernel  # (filter_size, filter_size, Ci, Co)
     gamma, beta, moving_mean, moving_var = bn.variables
     eps = bn.epsilon
     std = tf.math.sqrt(moving_var + eps)
-    t = tf.reshape(gamma / std, [-1, 1, 1, 1])
+    t = tf.reshape(gamma / std, [1, 1, -1, 1])
     return (kernel * t), (beta - moving_mean * gamma / std)
   
   def _fuse_bn_tensor_eager(self, conv, bn):
@@ -265,9 +265,12 @@ class RepConv(tf.keras.Model):
     if self.norm_type == 'bn':
       assert len(self.conv1.get_weights()) == 1
       assert len(self.conv3.get_weights()) == 1
-      w1 = self.conv1.get_weights()[0]
-      w1_3 = np.pad(w1, [(1, 1), (1, 1), (0, 0), (0, 0)], constant_value=0.0)
-      w3 = self.conv3.get_weights()[0]
+
+      k3, b3 = self._fuse_bn_tensor(self.conv3, self.bn3)
+      k1, b1 = self._fuse_bn_tensor(self.conv1, self.bn1)
+      k1_3 = tf.pad(k1, [(1, 1), (1, 1), (0, 0), (0, 0)], constant_value=0.0)
+      # if int(k1.shape[2]) == int(k1.shape[3]):
+      #   kid = 
 
       raise NotImplementedError()
     else:

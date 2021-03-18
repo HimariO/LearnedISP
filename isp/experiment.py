@@ -191,11 +191,11 @@ class ExperimentBuilder:
   
   def get_train_dataset(self):
     final_dataset = self.get_datasets(self.config.train_datasets, preprocess=True)
-    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
+    return final_dataset.repeat().prefetch(32)
   
   def get_val_dataset(self):
     final_dataset = self.get_datasets(self.config.val_datasets)
-    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
+    return final_dataset.repeat().prefetch(32)
   
   def compilted_model(self, loss_weights=None, model=None):
     model = self.get_model() if model is None else model
@@ -584,9 +584,9 @@ class CtxLossExperiment(Experiment):
     log_dir = os.path.join(model_dir, 'logs')
     tensorbaord = tf.keras.callbacks.TensorBoard(
       log_dir=log_dir,
-      histogram_freq=1,
+      histogram_freq=0,
       write_images=False,
-      write_graph=True)
+      write_graph=False)
     
     # NOTE: tf-nightly: tf.summary has no attirbute 'image'
     # write_image = callbacks.SaveValImage(log_dir)
@@ -595,7 +595,7 @@ class CtxLossExperiment(Experiment):
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
       ckpt_path,
       monitor='val_loss',
-      save_best_only=True,
+      save_best_only=False,
       save_weights_only=True,
     )
 
@@ -660,7 +660,10 @@ class CtxLossExperiment(Experiment):
     self.sanity_check(self.model, self.val_dataset)
     self.train_dataset = self.builder.get_train_dataset()
     
-    e_per_loop = 10
+    e_per_loop = 50
+    validation_steps = 2300 // self.config.general['batch_size']
+
+    # self.model.evaluate(self.val_dataset, steps=3)
     for e in range(0, epoch, e_per_loop):
       model.fit(
         self.train_dataset,
@@ -668,6 +671,7 @@ class CtxLossExperiment(Experiment):
         epochs=min(epoch, e + e_per_loop),
         initial_epoch=e,
         validation_data=self.val_dataset,
+        validation_steps=validation_steps,
         use_multiprocessing=False,
         workers=1,
         callbacks=callback_list,

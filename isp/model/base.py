@@ -3,6 +3,8 @@ import tensorflow as tf
 from .io import model_prediction, dataset_element
 
 
+MODES = ['train', 'inference', 'functional', 'quant_train', 'quant_eval']
+
 class RawBase(tf.keras.models.Model):
 
   def __init__(self, mode, *args, **kwargs):
