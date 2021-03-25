@@ -183,19 +183,19 @@ class ExperimentBuilder:
       
       tf_dataset = dataset_obj.create_dataset(
         batch_size=self.config.general['batch_size'],
-        num_readers=16,
-        num_parallel_calls=32
+        num_readers=8,
+        num_parallel_calls=16
       )
       datasets.append(tf_dataset)
     return tf.data.experimental.sample_from_datasets(datasets)
   
   def get_train_dataset(self):
     final_dataset = self.get_datasets(self.config.train_datasets, preprocess=True)
-    return final_dataset.repeat().prefetch(32)
+    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
   
   def get_val_dataset(self):
     final_dataset = self.get_datasets(self.config.val_datasets)
-    return final_dataset.repeat().prefetch(32)
+    return final_dataset.repeat().prefetch(tf.contrib.data.AUTOTUNE)
   
   def compilted_model(self, loss_weights=None, model=None):
     model = self.get_model() if model is None else model
@@ -326,8 +326,8 @@ class Experiment:
         self.sanity_check(self.model, self.val_dataset)
         callback_list = self.callbacks
         
-        e_per_loop = 10
-        validation_steps = 2300 // self.config.general['batch_size']
+        e_per_loop = 100
+        validation_steps = 2200 // self.config.general['batch_size']
         for e in range(0, epoch, e_per_loop):
           self.model.fit(
             self.train_dataset,
@@ -572,7 +572,8 @@ class CtxLossExperiment(Experiment):
     }
     self.config = config
     self.builder = ExperimentBuilder(config)
-    self.model = self.builder.compilted_model(loss_weights=self.loss_weights)
+    # self.model = self.builder.compilted_model(loss_weights=self.loss_weights)
+    self.model = None
     self.train_dataset = None
     self.val_dataset = None
   
@@ -643,6 +644,9 @@ class CtxLossExperiment(Experiment):
     model_dir = self.config.general['model_dir']
     load_weight = self.config.model['pretrain_weight'] if load_weight is None else load_weight
 
+    if self.model is None:
+      self.model = self.builder.compilted_model(loss_weights=self.loss_weights)
+
     if load_weight is not None:
       logger.info(f'load_weight: {load_weight}')
       if os.path.exists(os.path.join(load_weight, 'saved_model.pb')):
@@ -661,7 +665,7 @@ class CtxLossExperiment(Experiment):
     self.sanity_check(self.model, self.val_dataset)
     self.train_dataset = self.builder.get_train_dataset()
     
-    e_per_loop = 50
+    e_per_loop = 100
     validation_steps = 2300 // self.config.general['batch_size']
 
     # self.model.evaluate(self.val_dataset, steps=3)

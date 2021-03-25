@@ -336,4 +336,29 @@ with open('check_func.tflite', mode='wb') as f:
   f.write(lite_conv.convert())
 # %%
 
+class BN(tf.keras.layers.BatchNormalization):
+  def __init__(self, *args, is_training=True, **kwargs) -> None:
+      super().__init__(*args, **kwargs)
+      self.is_training = is_training
+  
+  def call(self, x, training=None):
+    return super().call(x, training=self.is_training)
 
+
+bnmd = tf.keras.Sequential([
+  tf.keras.layers.Input([10, 10, 8]),
+  tf.keras.layers.Conv2D(8, 1),
+  # tf.keras.layers.Lambda(lambda x: tf.compat.v1.layers.batch_normalization(x, training=True, fused=False)),
+  BN(),
+])
+bnmd.compile(optimizer='sgd', loss='mse')
+bnmd.summary()
+
+bn_init = bnmd.layers[-1].get_weights()
+print(bn_init)
+# %%
+
+for i in range(100):
+  d = np.random.normal(size=[8, 10, 10, 8]).astype(np.float32)
+  bnmd.train_on_batch(d, d + 3) 
+# %%

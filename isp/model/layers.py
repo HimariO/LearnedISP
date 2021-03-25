@@ -10,11 +10,20 @@ from tensorflow import keras
 #   tf.keras.layers.Lambda,
 #   lambda x: tf.contrib.slim.batch_norm(x, is_training=True))
 
-def BatchNormalization(is_training=True, **kwargs):
-  # return tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=is_training), **kwargs)
-  func = lambda x: tf.compat.v1.layers.batch_normalization(x, training=is_training, fused=False)
-  return tf.keras.layers.Lambda(func, **kwargs)
+# def BatchNormalization(is_training=True, **kwargs):
+#   # return tf.keras.layers.Lambda(lambda x: tf.contrib.slim.batch_norm(x, is_training=is_training), **kwargs)
+#   func = lambda x: tf.compat.v1.layers.batch_normalization(x, training=is_training, fused=False)
+#   return tf.keras.layers.Lambda(func, **kwargs)
 
+
+class BatchNormalization(tf.keras.layers.BatchNormalization):
+  def __init__(self, *args, is_training=True, **kwargs) -> None:
+      super().__init__(*args, **kwargs)
+      self.is_training = is_training
+  
+  def call(self, x, training=None):
+    return super().call(x, training=self.is_training)
+    # return super().call(x, training=None)
 
 
 try:

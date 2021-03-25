@@ -141,8 +141,8 @@ def load_keras_h5(in_size=[256, 256]):
       print('-' * 100)
 
       graph = sess.graph
-      # tf.contrib.quantize.create_training_graph(input_graph=graph)
-      tf.contrib.quantize.create_eval_graph(input_graph=graph)
+      tf.contrib.quantize.create_training_graph(input_graph=graph)
+      # tf.contrib.quantize.create_eval_graph(input_graph=graph)
       sess.run(tf.global_variables_initializer())
       
       if isinstance(model.input, dict):

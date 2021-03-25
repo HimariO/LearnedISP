@@ -340,8 +340,10 @@ def run_debug_experiment(config_path, load_weight=None, quantize=False):
 def test_cobi():
   import torch
   from cobi_torch import contextual_bilateral_loss
-  A = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
-  B = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
+  A = tf.reshape(tf.range(2*8*8*32, dtype=tf.float32), [2, 8, 8, 32])
+  B = A + 3
+  # A = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
+  # B = tf.random.uniform([2, 8, 8, 32], minval=-1.0, maxval=1.0)
 
   patch_size = 3
   cobi = losses.CoBi(patch_size=[patch_size, patch_size])
@@ -595,6 +597,7 @@ def check_gpu():
 
 
 if __name__ == '__main__':
+  # tf.enable_eager_execution()
   soft_gpu_meme_growth()
 
   with logger.catch(reraise=True):

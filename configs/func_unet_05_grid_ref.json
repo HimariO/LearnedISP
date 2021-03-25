@@ -44,7 +44,7 @@
           "type": "MaiIspTFRecordDataset",
           "args": [],
           "kwargs": {
-              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5/mai_isp.*.tfrecord"
+              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5_tf15/mai_isp.*.tfrecord"
           }
         }
       ],
@@ -53,7 +53,7 @@
           "type": "MaiIspTFRecordDataset",
           "args": [],
           "kwargs": {
-              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5/mai_isp_val.*.tfrecord"
+              "tf_record_path_pattern": "/home/ron/Downloads/LearnedISP/tfrecord_b5_tf15/mai_isp_val.*.tfrecord"
           }
         }
       ],
