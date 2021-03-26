@@ -8,6 +8,7 @@ import fire
 import torch
 import numpy as np
 import tensorflow as tf
+from PIL import Image
 from loguru import logger
 from tensorflow.keras import callbacks
 import matplotlib.pyplot as plt
@@ -257,24 +258,25 @@ for x, y in val_set:
   break
 # %%
 
-conv_a = tf.keras.layers.Conv2D(8, 3)
-conv_b = tf.keras.layers.Conv2D(8, 3)
-print(conv_a.get_weights())
+with tf.device('/gpu:1'):
+  conv_a = tf.keras.layers.Conv2D(8, 3)
+  conv_b = tf.keras.layers.Conv2D(8, 3)
+  print(conv_a.get_weights())
 
-data = np.ones([1, 16, 16, 3])
-da = conv_a(data)
-db = conv_b(data)
-print(np.abs(da -  db).mean())
+  data = np.ones([1, 16, 16, 3])
+  da = conv_a(data)
+  db = conv_b(data)
+  print(np.abs(da -  db).mean())
 
-conv_b.kernel = conv_a.kernel
-da = conv_a(data)
-db = conv_b(data)
-print(np.abs(da -  db).mean())
+  conv_b.kernel = conv_a.kernel
+  da = conv_a(data)
+  db = conv_b(data)
+  print(np.abs(da -  db).mean())
 
-I = tf.keras.layers.Input(shape=[16, 16, 3])
-conv_c = tf.keras.layers.Conv2D(8, 3)
-conv_c(I)
-print(conv_c.variables)
+  I = tf.keras.layers.Input(shape=[16, 16, 3])
+  conv_c = tf.keras.layers.Conv2D(8, 3)
+  conv_c(I)
+  print(conv_c.variables)
 
 # %%
 
@@ -337,3 +339,16 @@ with open('check_func.tflite', mode='wb') as f:
 # %%
 
 
+with tf.device('/gpu:1'):
+  img_path = "/home/ron/Pictures/dog.jpeg"
+  dog_img = np.asarray(Image.open(img_path).resize((331, 331))).astype(np.float32)[None, ...]
+  dog_img = tf.keras.applications.nasnet.preprocess_input(dog_img)
+  B5 = tf.keras.applications.NASNetLarge()
+  # B5 = EfficientNetB5(input_shape=[256, 256, 3], include_top=False)
+  # B5.summary()
+  # pred = B5.predict(np.ones([1, 256, 256, 3]))
+  pred = B5.predict(dog_img)
+  print(pred[0, :100])
+  print(pred.argmax(), pred.max())
+  print(pred.mean())
+# %%

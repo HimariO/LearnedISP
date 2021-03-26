@@ -320,7 +320,7 @@ class Experiment:
     self.sanity_check(self.model, self.val_dataset)
     callback_list = self.callbacks
     
-    e_per_loop = 10
+    e_per_loop = 100
     for e in range(0, epoch, e_per_loop):
       self.model.fit(
         self.train_dataset,
